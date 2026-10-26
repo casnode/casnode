@@ -1,5 +1,13 @@
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
-import { faBell as farBell, faBookmark as farBookmark, faHeart as farHeart, faEnvelope as farEnvelope, faUser as farUser } from "@fortawesome/free-regular-svg-icons";
+import {
+  faBell as farBell,
+  faBookmark as farBookmark,
+  faCircle as farCircle,
+  faEnvelope as farEnvelope,
+  faHeart as farHeart,
+  faSquare as farSquare,
+  faUser as farUser,
+} from "@fortawesome/free-regular-svg-icons";
 import {
   faAngleDown,
   faAnglesDown,
@@ -79,6 +87,15 @@ import {
   faFire,
   faCircleQuestion,
   faCircleCheck,
+  faCertificate,
+  faUserGroup,
+  faKeyboard,
+  faHashtag,
+  faFaceSmile,
+  faChartBar,
+  faCircleDot,
+  faUnlock,
+  faCalendar,
 } from "@fortawesome/free-solid-svg-icons";
 
 // Discourse draws its icons from Font Awesome; these are the ones the pages use, by Discourse's names.
@@ -166,6 +183,17 @@ const icons: Record<string, IconDefinition> = {
   "file-lines": faFileLines,
   trophy: faTrophy,
   fire: faFire,
+  certificate: faCertificate,
+  "user-group": faUserGroup,
+  keyboard: faKeyboard,
+  hashtag: faHashtag,
+  "face-smile": faFaceSmile,
+  "chart-bar": faChartBar,
+  "circle-dot": faCircleDot,
+  "far-circle": farCircle,
+  "far-square": farSquare,
+  unlock: faUnlock,
+  calendar: faCalendar,
 };
 
 export type IconName = keyof typeof icons;

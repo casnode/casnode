@@ -93,6 +93,18 @@ var SettingDefs = []*SettingDef{
 	{Name: "login_required", Type: "bool", Default: "false", Category: "login", Public: true},
 	{Name: "max_upload_size_kb", Type: "integer", Default: "4096", Category: "files", Public: true},
 	{Name: "authorized_extensions", Type: "list", Default: "jpg|jpeg|png|gif|webp|svg|pdf|zip|txt", Category: "files", Public: true},
+	{Name: "poll_enabled", Type: "bool", Default: "true", Category: "posting", Public: true},
+	{Name: "chat_enabled", Type: "bool", Default: "true", Category: "chat", Public: true},
+	{Name: "chat_max_message_length", Type: "integer", Default: "6000", Category: "chat", Public: true},
+	{Name: "enable_badges", Type: "bool", Default: "true", Category: "badges", Public: true},
+	{Name: "email_enabled", Type: "bool", Default: "false", Category: "email", Public: true},
+	{Name: "notification_email", Type: "string", Default: "", Category: "email", Public: false},
+	{Name: "smtp_host", Type: "string", Default: "", Category: "email", Public: false},
+	{Name: "smtp_port", Type: "integer", Default: "587", Category: "email", Public: false},
+	{Name: "smtp_security", Type: "enum", Default: "starttls", Category: "email", Public: false, Choices: "starttls|ssl|none"},
+	{Name: "smtp_username", Type: "string", Default: "", Category: "email", Public: false},
+	{Name: "smtp_password", Type: "secret", Default: "", Category: "email", Public: false},
+	{Name: "email_delay_minutes", Type: "integer", Default: "5", Category: "email", Public: false},
 	{Name: "google_analytics_id", Type: "string", Default: "", Category: "analytics", Public: true},
 	{Name: "baidu_analytics_id", Type: "string", Default: "", Category: "analytics", Public: true},
 	{Name: "uncategorized_category_id", Type: "integer", Default: "0", Category: "hidden", Public: true},
@@ -181,15 +193,25 @@ func GetAllSettings() []*SettingItem {
 		if def.Category == "hidden" {
 			continue
 		}
-		res = append(res, &SettingItem{SettingDef: def, Value: settings[def.Name]})
+		value := settings[def.Name]
+		if def.Type == "secret" && value != "" {
+			value = SecretPlaceholder
+		}
+		res = append(res, &SettingItem{SettingDef: def, Value: value})
 	}
 	return res
 }
+
+// SecretPlaceholder stands for a secret setting that is set, which the admin page never gets back.
+const SecretPlaceholder = "********"
 
 func SetSiteSetting(name string, value string) error {
 	def := getSettingDef(name)
 	if def == nil {
 		return fmt.Errorf("Unknown setting %s", name)
+	}
+	if def.Type == "secret" && value == SecretPlaceholder {
+		return nil
 	}
 	if def.Type == "integer" {
 		if _, err := strconv.Atoi(value); err != nil {

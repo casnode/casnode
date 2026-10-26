@@ -106,6 +106,9 @@ type profileInput struct {
 	Website  string `json:"website"`
 	Title    string `json:"title"`
 	Locale   string `json:"locale"`
+	// "", "away", "always" or "never"; "" keeps the setting
+	EmailLevel         string `json:"emailLevel"`
+	EmailMessagesLevel string `json:"emailMessagesLevel"`
 }
 
 // UpdateProfile
@@ -133,7 +136,28 @@ func (c *ApiController) UpdateProfile() {
 	user.Location = input.Location
 	user.Website = input.Website
 	user.Locale = input.Locale
+	if input.EmailLevel != "" {
+		user.EmailLevel = object.EmailLevelValue(input.EmailLevel, false)
+	}
+	if input.EmailMessagesLevel != "" {
+		user.EmailMessagesLevel = object.EmailLevelValue(input.EmailMessagesLevel, true)
+	}
 	if viewer.IsStaff() {
+		user.Title = input.Title
+	} else if input.Title != user.Title {
+		// users pick their title from their badges and groups
+		titles, err := object.GetBadgeTitles(user.Id)
+		if c.responseErr(err) {
+			return
+		}
+		allowed := input.Title == ""
+		for _, title := range titles {
+			allowed = allowed || title == input.Title
+		}
+		if !allowed {
+			c.ResponseError("You can't use this title")
+			return
+		}
 		user.Title = input.Title
 	}
 	if c.responseErr(object.UpdateUserProfile(user)) {
@@ -164,6 +188,15 @@ func (c *ApiController) SearchUsers() {
 	}
 	users, err := object.SearchUsers(c.GetString("term"), 8)
 	if c.responseErr(err) {
+		return
+	}
+	// groups too, for @mentions (mentionable ones) and message recipients (messageable ones)
+	if include := c.GetString("groups"); include == "mention" || include == "message" {
+		groups, err := object.SearchGroupsForMention(c.GetSessionUser(), c.GetString("term"), include == "message")
+		if c.responseErr(err) {
+			return
+		}
+		c.ResponseOk(users, groups)
 		return
 	}
 	c.ResponseOk(users)
@@ -202,4 +235,76 @@ func (c *ApiController) ReadNotification() {
 		return
 	}
 	c.ResponseOk()
+}
+
+type userCard struct {
+	User       *object.User               `json:"user"`
+	Badges     []*object.UserBadgeSummary `json:"badges"`
+	BadgeCount int                        `json:"badgeCount"`
+	Groups     []*object.Group            `json:"groups"`
+	CanMessage bool                       `json:"canMessage"`
+	CanChat    bool                       `json:"canChat"`
+}
+
+// GetUserCard
+// @Title GetUserCard
+// @Description what the card shown on clicking a user's avatar or name needs
+// @router /get-user-card [get]
+func (c *ApiController) GetUserCard() {
+	viewer := c.GetSessionUser()
+	user := c.loadUser(c.GetString("username"))
+	if user == nil {
+		return
+	}
+	badges, err := object.GetUserBadges(user.Id)
+	if c.responseErr(err) {
+		return
+	}
+	groups, err := object.GetUserGroups(viewer, user.Id)
+	if c.responseErr(err) {
+		return
+	}
+	card := &userCard{User: user.Public(), Badges: badges, BadgeCount: len(badges), Groups: groups}
+	if len(card.Badges) > 3 {
+		card.Badges = card.Badges[:3]
+	}
+	if viewer != nil && viewer.Id != user.Id && user.Username != object.SystemUsername {
+		card.CanMessage = object.GetSiteSettingBool("enable_personal_messages") || viewer.IsStaff()
+		card.CanChat = object.IsChatEnabled() && !viewer.IsSuspended()
+	}
+	c.ResponseOk(card)
+}
+
+// GetUserPreferences
+// @Title GetUserPreferences
+// @Description the settings only the user and staff see: email levels and the titles they may pick
+// @router /get-user-preferences [get]
+func (c *ApiController) GetUserPreferences() {
+	viewer := c.RequireSignedInUser()
+	if viewer == nil {
+		return
+	}
+	user := c.loadUser(c.GetString("username"))
+	if user == nil {
+		return
+	}
+	if user.Id != viewer.Id && !viewer.IsStaff() {
+		c.ResponseError("You can't see these settings")
+		return
+	}
+	titles, err := object.GetBadgeTitles(user.Id)
+	if c.responseErr(err) {
+		return
+	}
+	groups, err := object.GetUserGroups(viewer, user.Id)
+	if c.responseErr(err) {
+		return
+	}
+	c.ResponseOk(map[string]interface{}{
+		"emailLevel":         object.EmailLevelName(user.EmailLevel, false),
+		"emailMessagesLevel": object.EmailLevelName(user.EmailMessagesLevel, true),
+		"emailEnabled":       object.IsEmailConfigured(),
+		"titles":             titles,
+		"groups":             groups,
+	})
 }

@@ -1,3 +1,4 @@
+import { Icon } from "@/components/icon";
 import type { User } from "@/lib/types";
 
 // Discourse's letter avatars: the first letter of the name on a color picked from the name.
@@ -18,6 +19,13 @@ function letterColor(name: string): string {
 export function Avatar({ user, size = 45, className, title }: { user?: User | null; size?: number; className?: string; title?: string }) {
   const name = user?.username ?? "?";
   const style = { width: size, height: size };
+  if (user?.isGroup) {
+    return (
+      <span className={`letter-avatar group-avatar${className ? ` ${className}` : ""}`} style={{ ...style, fontSize: Math.round(size * 0.5) }} title={title ?? name} aria-label={name} role="img">
+        <Icon name="users" />
+      </span>
+    );
+  }
   if (user?.avatar) {
     // eslint-disable-next-line @next/next/no-img-element
     return <img src={user.avatar} alt="" title={title ?? name} className={`avatar${className ? ` ${className}` : ""}`} style={style} loading="lazy" width={size} height={size} />;

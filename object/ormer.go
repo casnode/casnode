@@ -145,6 +145,21 @@ func (a *Adapter) createTables() error {
 		new(Upload),
 		new(SiteSetting),
 		new(UserVisit),
+		new(Group),
+		new(GroupMember),
+		new(GroupRequest),
+		new(CategoryGroup),
+		new(TopicAllowedGroup),
+		new(Badge),
+		new(UserBadge),
+		new(Poll),
+		new(PollOption),
+		new(PollVote),
+		new(OneboxCache),
+		new(ChatChannel),
+		new(ChatMembership),
+		new(ChatMessage),
+		new(ChatReaction),
 	}
 	for _, table := range tables {
 		err := a.Engine.Sync2(table)

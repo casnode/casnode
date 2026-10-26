@@ -17,6 +17,8 @@ package object
 import (
 	"sync"
 	"time"
+
+	"github.com/xorm-io/builder"
 )
 
 // The notification levels of a topic, as in Discourse.
@@ -178,9 +180,12 @@ func CountUnreadPrivateMessages(user *User) (int64, error) {
 	if user == nil {
 		return 0, nil
 	}
+	mine := builder.Or(
+		builder.In("topic.id", builder.Select("topic_id").From("topic_allowed_user").Where(builder.Eq{"user_id": user.Id})),
+		builder.In("topic.id", builder.Select("topic_id").From("topic_allowed_group").Where(builder.In("group_id", append(GetUserGroupIds(user.Id), -1)))),
+	)
 	return adapter.Engine.Table("topic").
-		Join("INNER", "topic_allowed_user", "topic_allowed_user.topic_id = topic.id AND topic_allowed_user.user_id = ?", user.Id).
 		Join("LEFT", "topic_user", "topic_user.topic_id = topic.id AND topic_user.user_id = ?", user.Id).
-		Where("topic.archetype = ? AND topic.deleted = ?", ArchetypePrivateMessage, false).
+		Where("topic.archetype = ? AND topic.deleted = ?", ArchetypePrivateMessage, false).And(mine).
 		And("(topic_user.id IS NULL OR topic.highest_post_number > topic_user.last_read_post_number)").Count()
 }

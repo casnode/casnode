@@ -15,8 +15,10 @@
 package object
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -87,4 +89,16 @@ func truncateRunes(s string, n int) string {
 
 func errorf(format string, a ...interface{}) error {
 	return fmt.Errorf(format, a...)
+}
+
+func itoa(n int64) string {
+	return strconv.FormatInt(n, 10)
+}
+
+func toJson(v interface{}) string {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }

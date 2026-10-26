@@ -80,17 +80,19 @@ type participant struct {
 }
 
 type topicDetails struct {
-	CreatedBy      int64          `json:"createdBy"`
-	LastPoster     int64          `json:"lastPoster"`
-	Participants   []*participant `json:"participants"`
-	AllowedUserIds []int64        `json:"allowedUserIds"`
-	CanEdit        bool           `json:"canEdit"`
-	CanReply       bool           `json:"canReply"`
-	CanModerate    bool           `json:"canModerate"`
-	CanDelete      bool           `json:"canDelete"`
-	CanRecover     bool           `json:"canRecover"`
-	CanClose       bool           `json:"canClose"`
-	Bookmarked     bool           `json:"bookmarked"`
+	CreatedBy      int64           `json:"createdBy"`
+	LastPoster     int64           `json:"lastPoster"`
+	Participants   []*participant  `json:"participants"`
+	AllowedUserIds []int64         `json:"allowedUserIds"`
+	AllowedGroups  []*object.Group `json:"allowedGroups"`
+	CanMovePosts   bool            `json:"canMovePosts"`
+	CanEdit        bool            `json:"canEdit"`
+	CanReply       bool            `json:"canReply"`
+	CanModerate    bool            `json:"canModerate"`
+	CanDelete      bool            `json:"canDelete"`
+	CanRecover     bool            `json:"canRecover"`
+	CanClose       bool            `json:"canClose"`
+	Bookmarked     bool            `json:"bookmarked"`
 }
 
 type topicView struct {
@@ -127,6 +129,22 @@ func (c *ApiController) loadVisibleTopic(user *object.User, id int64) *object.To
 // @router /get-topic [get]
 func (c *ApiController) GetTopic() {
 	user := c.GetSessionUser()
+	merged, err := object.GetTopic(c.getInt64("id"))
+	if c.responseErr(err) {
+		return
+	}
+	// the address of a topic merged into another leads there
+	if merged != nil && merged.Deleted && merged.MergedIntoId != 0 && !user.IsStaff() {
+		destination, err := object.GetTopic(merged.MergedIntoId)
+		if c.responseErr(err) {
+			return
+		}
+		if destination != nil {
+			c.Data["json"] = &Response{Status: "error", Msg: "The topic was merged into another", Data: map[string]interface{}{"mergedInto": map[string]interface{}{"id": destination.Id, "slug": destination.Slug}}}
+			c.ServeJSON()
+			return
+		}
+	}
 	topic := c.loadVisibleTopic(user, c.getInt64("id"))
 	if topic == nil {
 		return
@@ -206,14 +224,15 @@ func (c *ApiController) GetTopic() {
 
 func getTopicDetails(user *object.User, topic *object.Topic) (*topicDetails, []int64, error) {
 	details := &topicDetails{
-		CreatedBy:   topic.UserId,
-		LastPoster:  topic.LastPostUserId,
-		CanEdit:     object.CanEditTopic(user, topic),
-		CanReply:    object.CanReply(user, topic),
-		CanModerate: user.IsStaff(),
-		CanDelete:   user.IsStaff() || (user != nil && topic.UserId == user.Id && topic.PostsCount <= 1),
-		CanRecover:  user.IsStaff() && topic.Deleted,
-		CanClose:    user.IsStaff() || (user != nil && topic.UserId == user.Id),
+		CreatedBy:    topic.UserId,
+		LastPoster:   topic.LastPostUserId,
+		CanEdit:      object.CanEditTopic(user, topic),
+		CanReply:     object.CanReply(user, topic),
+		CanModerate:  user.IsStaff(),
+		CanDelete:    user.IsStaff() || (user != nil && topic.UserId == user.Id && topic.PostsCount <= 1),
+		CanRecover:   user.IsStaff() && topic.Deleted,
+		CanClose:     user.IsStaff() || (user != nil && topic.UserId == user.Id),
+		CanMovePosts: user.IsStaff() && !topic.Deleted,
 	}
 	participants, err := object.GetTopicParticipants(topic.Id, 24)
 	if err != nil {
@@ -226,6 +245,10 @@ func getTopicDetails(user *object.User, topic *object.Topic) (*topicDetails, []i
 	}
 	if topic.IsPrivateMessage() {
 		details.AllowedUserIds, err = object.GetTopicAllowedUserIds(topic.Id)
+		if err != nil {
+			return nil, nil, err
+		}
+		details.AllowedGroups, err = object.GetTopicAllowedGroups(topic.Id)
 		if err != nil {
 			return nil, nil, err
 		}

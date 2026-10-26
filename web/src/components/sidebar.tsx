@@ -4,6 +4,8 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { Icon } from "@/components/icon";
+import { ChatChannelLinks } from "@/components/chat/chat";
+import { useChat } from "@/components/chat/chat-provider";
 import { useLayoutState } from "@/components/layout-state";
 import { useSite } from "@/components/site-provider";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -45,7 +47,8 @@ function Section({ id, title, children, action }: { id: string; title?: string; 
 
 export function Sidebar() {
   const { currentUser, categories, site, t, locale, settings } = useSite();
-  const { sidebarVisible, mobileSidebarOpen } = useLayoutState();
+  const { sidebarVisible, mobileSidebarOpen, hideSidebarOnMobile } = useLayoutState();
+  const chat = useChat();
   const pathname = usePathname();
   const router = useRouter();
 
@@ -119,10 +122,33 @@ export function Sidebar() {
                       {t("sidebar.users")}
                     </Link>
                   </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/g">
+                      <Icon name="user-group" />
+                      {t("sidebar.groups")}
+                    </Link>
+                  </DropdownMenuItem>
+                  {settings.enable_badges !== "false" ? (
+                    <DropdownMenuItem asChild>
+                      <Link href="/badges">
+                        <Icon name="certificate" />
+                        {t("sidebar.badges")}
+                      </Link>
+                    </DropdownMenuItem>
+                  ) : null}
+                  <DropdownMenuItem
+                    onSelect={() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "?", bubbles: true }))}
+                  >
+                    <Icon name="keyboard" />
+                    {t("shortcuts.title")}
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </li>
           </Section>
+
+          {/* the chat pages list the channels themselves */}
+          {chat.enabled && !pathname.startsWith("/chat") ? <ChatChannelLinks onNavigate={hideSidebarOnMobile} /> : null}
 
           <Section
             id="categories"

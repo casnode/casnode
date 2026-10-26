@@ -7,7 +7,7 @@ import { Icon } from "@/components/icon";
 import { useSite } from "@/components/site-provider";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { apiGet } from "@/lib/api";
-import type { Category, Tag, User } from "@/lib/types";
+import type { Category, Group, Tag, User } from "@/lib/types";
 
 // The category drop-down with a filter box, like Discourse's category-chooser.
 export function CategoryChooser({
@@ -235,7 +235,10 @@ function ChipsInput<T>({
 
 const searchTags = async (term: string) => (await apiGet<Tag[]>("get-tags", { q: term })).data ?? [];
 const tagValue = (tag: Tag) => tag.name;
-const searchUsers = async (term: string) => (await apiGet<User[]>("search-users", { term })).data ?? [];
+const searchUsers = async (term: string) => {
+  const res = await apiGet<User[], Group[] | null>("search-users", { term, groups: "message" });
+  return [...(res.data ?? []), ...groupsAsUsers(res.data2)];
+};
 const userValue = (user: User) => user.username;
 
 export function TagChooser({ values, onChange, placeholder, max }: { values: string[]; onChange: (v: string[]) => void; placeholder: string; max?: number }) {
@@ -278,4 +281,9 @@ export function UserChooser({ values, onChange, placeholder }: { values: string[
       )}
     />
   );
+}
+
+// groupsAsUsers offers groups among users, for @mentions and message recipients.
+export function groupsAsUsers(groups?: Group[] | null): User[] {
+  return (groups ?? []).map((g) => ({ id: -g.id, username: g.name, name: g.fullName, avatar: "", title: "", admin: false, moderator: false, trustLevel: 0, isGroup: true }));
 }

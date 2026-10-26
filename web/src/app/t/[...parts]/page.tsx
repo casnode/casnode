@@ -71,6 +71,11 @@ export default async function Page({ params, searchParams }: Props) {
     notFound();
   }
   const res = await loadTopic(id, postNumber, page);
+  // a topic merged into another leads there
+  const mergedInto = (res.data as unknown as { mergedInto?: { id: number; slug: string } } | null)?.mergedInto;
+  if (res.status !== "ok" && mergedInto) {
+    permanentRedirect(topicUrl(mergedInto));
+  }
   if (res.status !== "ok") {
     notFound();
   }

@@ -1,12 +1,19 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useSite } from "@/components/site-provider";
-import { apiPost, errorMessage } from "@/lib/api";
+import { apiGet, apiPost, errorMessage } from "@/lib/api";
 import { locales } from "@/lib/i18n";
 import type { User } from "@/lib/types";
+
+interface Preferences {
+  emailLevel: string;
+  emailMessagesLevel: string;
+  emailEnabled: boolean;
+  titles: string[] | null;
+}
 
 export function PreferencesForm({ user, accountUrl }: { user: User; accountUrl: string }) {
   const { t, currentUser } = useSite();
@@ -17,12 +24,26 @@ export function PreferencesForm({ user, accountUrl }: { user: User; accountUrl: 
   const [title, setTitle] = useState(user.title ?? "");
   const [locale, setLocale] = useState(user.locale ?? "");
   const [busy, setBusy] = useState(false);
+  const [prefs, setPrefs] = useState<Preferences | null>(null);
+  const [emailLevel, setEmailLevel] = useState("");
+  const [emailMessagesLevel, setEmailMessagesLevel] = useState("");
+
+  useEffect(() => {
+    apiGet<Preferences>("get-user-preferences", { username: user.username })
+      .then((res) => {
+        setPrefs(res.data);
+        setEmailLevel(res.data.emailLevel);
+        setEmailMessagesLevel(res.data.emailMessagesLevel);
+      })
+      .catch(() => undefined);
+  }, [user.username]);
+
   const staff = !!currentUser && (currentUser.admin || currentUser.moderator);
 
   const save = async () => {
     setBusy(true);
     try {
-      await apiPost("update-profile", undefined, { username: user.username, bioRaw, location, website, title, locale });
+      await apiPost("update-profile", undefined, { username: user.username, bioRaw, location, website, title, locale, emailLevel, emailMessagesLevel });
       if (currentUser?.id === user.id) {
         document.cookie = locale ? `locale=${locale}; path=/; max-age=31536000; samesite=lax` : "locale=; path=/; max-age=0";
       }
@@ -79,9 +100,24 @@ export function PreferencesForm({ user, accountUrl }: { user: User; accountUrl: 
       {staff ? (
         <div className="control-group">
           <label className="control-label" htmlFor="title">
-            Title
+            {t("user.title")}
           </label>
           <input id="title" className="d-input" value={title} onChange={(e) => setTitle(e.target.value)} />
+        </div>
+      ) : prefs?.titles?.length ? (
+        <div className="control-group">
+          <label className="control-label" htmlFor="title">
+            {t("user.title")}
+          </label>
+          <select id="title" className="d-select" value={title} onChange={(e) => setTitle(e.target.value)}>
+            <option value="">{t("user.noTitle")}</option>
+            {prefs.titles.map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+          <div className="instructions">{t("user.titleHelp")}</div>
         </div>
       ) : null}
       <div className="control-group">
@@ -97,6 +133,34 @@ export function PreferencesForm({ user, accountUrl }: { user: User; accountUrl: 
           ))}
         </select>
       </div>
+      {prefs ? (
+        <>
+          <h2 className="mt-6 mb-4 text-[1.3195em] font-bold" id="emails">
+            {t("user.emails")}
+          </h2>
+          {!prefs.emailEnabled ? <p className="instructions">{t("user.emailOff")}</p> : null}
+          <div className="control-group">
+            <label className="control-label" htmlFor="email-level">
+              {t("user.emailLevel")}
+            </label>
+            <select id="email-level" className="d-select" value={emailLevel} onChange={(e) => setEmailLevel(e.target.value)}>
+              <option value="always">{t("user.emailAlways")}</option>
+              <option value="away">{t("user.emailAway")}</option>
+              <option value="never">{t("user.emailNever")}</option>
+            </select>
+          </div>
+          <div className="control-group">
+            <label className="control-label" htmlFor="email-messages-level">
+              {t("user.emailMessagesLevel")}
+            </label>
+            <select id="email-messages-level" className="d-select" value={emailMessagesLevel} onChange={(e) => setEmailMessagesLevel(e.target.value)}>
+              <option value="always">{t("user.emailAlways")}</option>
+              <option value="away">{t("user.emailAway")}</option>
+              <option value="never">{t("user.emailNever")}</option>
+            </select>
+          </div>
+        </>
+      ) : null}
       <button type="button" className="btn btn-primary" disabled={busy} onClick={save}>
         {t("user.save")}
       </button>

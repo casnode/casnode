@@ -41,6 +41,13 @@ type Category struct {
 	TopicsWeek  int     `xorm:"-" json:"topicsWeek"`
 	TopicsMonth int     `xorm:"-" json:"topicsMonth"`
 	SubIds      []int64 `xorm:"-" json:"subcategoryIds"`
+	// the groups let into a restricted category
+	Permissions []*CategoryPermission `xorm:"-" json:"permissions"`
+}
+
+type CategoryPermission struct {
+	GroupId        int64 `json:"groupId"`
+	PermissionType int   `json:"permissionType"`
 }
 
 // The categories rarely change and every page shows them, so they are kept in memory.
@@ -62,10 +69,21 @@ func loadCategories() ([]*Category, error) {
 	if err != nil {
 		return nil, err
 	}
+	permissions := []*CategoryGroup{}
+	err = adapter.Engine.Asc("id").Find(&permissions)
+	if err != nil {
+		return nil, err
+	}
 	for _, category := range categories {
 		for _, sub := range categories {
 			if sub.ParentId == category.Id {
 				category.SubIds = append(category.SubIds, sub.Id)
+			}
+		}
+		category.Permissions = []*CategoryPermission{}
+		for _, permission := range permissions {
+			if permission.CategoryId == category.Id {
+				category.Permissions = append(category.Permissions, &CategoryPermission{GroupId: permission.GroupId, PermissionType: permission.PermissionType})
 			}
 		}
 	}
@@ -82,12 +100,63 @@ func invalidateCategories() {
 	categoryCacheLock.Unlock()
 }
 
+// groupPermission is the best permission the user's groups have in the category: 0 when none of them is let in.
+func (c *Category) groupPermission(user *User) int {
+	if user == nil || len(c.Permissions) == 0 {
+		return 0
+	}
+	groupIds := GetUserGroupIds(user.Id)
+	best := 0
+	for _, permission := range c.Permissions {
+		if containsId(groupIds, permission.GroupId) && (best == 0 || permission.PermissionType < best) {
+			best = permission.PermissionType
+		}
+	}
+	return best
+}
+
+// A read-restricted category is for staff and the groups let in; a create-restricted one takes new topics only from
+// staff and groups with full permission.
 func (c *Category) CanSee(user *User) bool {
-	return !c.ReadRestricted || user.IsStaff()
+	return !c.ReadRestricted || user.IsStaff() || c.groupPermission(user) != 0
 }
 
 func (c *Category) CanCreateTopic(user *User) bool {
-	return user != nil && (!c.CreateRestricted || user.IsStaff()) && c.CanSee(user)
+	if user == nil {
+		return false
+	}
+	permission := c.groupPermission(user)
+	return user.IsStaff() || permission == CategoryPermissionFull || (!c.ReadRestricted && !c.CreateRestricted)
+}
+
+func (c *Category) CanReply(user *User) bool {
+	if user == nil {
+		return false
+	}
+	permission := c.groupPermission(user)
+	return user.IsStaff() || !c.ReadRestricted || permission == CategoryPermissionFull || permission == CategoryPermissionCreatePost
+}
+
+func saveCategoryPermissions(category *Category) error {
+	_, err := adapter.Engine.Where("category_id = ?", category.Id).Delete(&CategoryGroup{})
+	if err != nil {
+		return err
+	}
+	seen := map[int64]bool{}
+	for _, permission := range category.Permissions {
+		if permission.GroupId == 0 || seen[permission.GroupId] {
+			continue
+		}
+		seen[permission.GroupId] = true
+		if permission.PermissionType < CategoryPermissionFull || permission.PermissionType > CategoryPermissionReadonly {
+			permission.PermissionType = CategoryPermissionFull
+		}
+		_, err = adapter.Engine.Insert(&CategoryGroup{CategoryId: category.Id, GroupId: permission.GroupId, PermissionType: permission.PermissionType})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // GetCategories returns the categories the user may see, in their order.
@@ -243,6 +312,9 @@ func AddCategory(category *Category) error {
 		category.Position = len(categories) + 1
 	}
 	_, err = adapter.Engine.Insert(category)
+	if err == nil {
+		err = saveCategoryPermissions(category)
+	}
 	invalidateCategories()
 	return err
 }
@@ -254,6 +326,9 @@ func UpdateCategory(category *Category) error {
 	}
 	_, err = adapter.Engine.ID(category.Id).Cols("name", "slug", "description", "color", "text_color", "parent_id", "position",
 		"read_restricted", "create_restricted", "topic_template").Update(category)
+	if err == nil {
+		err = saveCategoryPermissions(category)
+	}
 	invalidateCategories()
 	return err
 }
@@ -277,6 +352,10 @@ func DeleteCategory(id int64) error {
 		return err
 	}
 	_, err = adapter.Engine.ID(id).Delete(&Category{})
+	if err != nil {
+		return err
+	}
+	_, err = adapter.Engine.Where("category_id = ?", id).Delete(&CategoryGroup{})
 	if err != nil {
 		return err
 	}

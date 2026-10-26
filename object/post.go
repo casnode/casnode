@@ -56,6 +56,8 @@ type Post struct {
 	CanEdit    bool `xorm:"-" json:"canEdit"`
 	CanDelete  bool `xorm:"-" json:"canDelete"`
 	CanRecover bool `xorm:"-" json:"canRecover"`
+
+	Polls []*Poll `xorm:"-" json:"polls,omitempty"`
 }
 
 // PostRevision keeps what a post looked like before each edit.
@@ -117,7 +119,22 @@ func GetPostsByNumbers(user *User, topic *Topic, numbers []int) ([]*Post, error)
 		return nil, err
 	}
 	err = FillPostUserState(user, topic, posts)
+	if err != nil {
+		return nil, err
+	}
+	err = fillPostPolls(user, posts)
 	return posts, err
+}
+
+func fillPostPolls(user *User, posts []*Post) error {
+	polls, err := GetPostPolls(user, posts)
+	if err != nil {
+		return err
+	}
+	for _, post := range posts {
+		post.Polls = polls[post.Id]
+	}
+	return nil
 }
 
 func CanEditPost(user *User, topic *Topic, post *Post) bool {
@@ -190,6 +207,15 @@ func checkCanReply(user *User, topic *Topic) error {
 	if topic.Closed && !user.IsStaff() {
 		return fmt.Errorf("The topic is closed")
 	}
+	if !topic.IsPrivateMessage() {
+		category, err := GetCategory(topic.CategoryId)
+		if err != nil {
+			return err
+		}
+		if category != nil && !category.CanReply(user) {
+			return fmt.Errorf("You can't reply in %s", category.Name)
+		}
+	}
 	return nil
 }
 
@@ -238,6 +264,10 @@ func AddPost(user *User, topicId int64, raw string, replyToPostNumber int) (*Pos
 		return nil, err
 	}
 	cooked := CookMarkdown(raw)
+	err = validatePolls(cooked.Polls)
+	if err != nil {
+		return nil, err
+	}
 	now := time.Now()
 	post := &Post{
 		TopicId:           topic.Id,
@@ -293,11 +323,19 @@ func AddPost(user *User, topicId int64, raw string, replyToPostNumber int) (*Pos
 		return nil, err
 	}
 
+	err = SyncPolls(post.Id, cooked.Polls)
+	if err != nil {
+		return nil, err
+	}
+	RebakePostAfterOneboxes(post.Id, cooked.OneboxUrls)
 	notifyNewPost(user, topic, post, cooked)
+	PublishToTopic(topic, map[string]interface{}{"type": "created", "postId": post.Id, "postNumber": post.PostNumber, "userId": user.Id})
+	PublishLatest(topic, "bumped")
+	TriggerBadgeGrant()
 	return post, nil
 }
 
-func addSmallAction(user *User, topic *Topic, actionCode string) error {
+func addSmallAction(user *User, topic *Topic, actionCode string, cooked string) error {
 	postLock.Lock()
 	defer postLock.Unlock()
 
@@ -311,6 +349,7 @@ func addSmallAction(user *User, topic *Topic, actionCode string) error {
 		UserId:     user.Id,
 		PostType:   PostTypeSmallAction,
 		ActionCode: actionCode,
+		Cooked:     cooked,
 		Version:    1,
 	}
 	_, err = adapter.Engine.Insert(post)
@@ -318,7 +357,11 @@ func addSmallAction(user *User, topic *Topic, actionCode string) error {
 		return err
 	}
 	_, err = adapter.Engine.ID(topic.Id).Cols("highest_post_number").Update(&Topic{HighestPostNumber: post.PostNumber})
-	return err
+	if err != nil {
+		return err
+	}
+	PublishToTopic(topic, map[string]interface{}{"type": "status", "postId": post.Id, "postNumber": post.PostNumber})
+	return nil
 }
 
 type PostUpdate struct {
@@ -356,6 +399,11 @@ func UpdatePost(user *User, input *PostUpdate) (*Post, error) {
 	if input.Raw == post.Raw {
 		return post, nil
 	}
+	cooked := CookMarkdown(input.Raw)
+	err = validatePolls(cooked.Polls)
+	if err != nil {
+		return nil, err
+	}
 
 	revision := &PostRevision{
 		PostId:    post.Id,
@@ -370,7 +418,6 @@ func UpdatePost(user *User, input *PostUpdate) (*Post, error) {
 		return nil, err
 	}
 
-	cooked := CookMarkdown(input.Raw)
 	post.Raw = input.Raw
 	post.Cooked = cooked.Html
 	post.Version++
@@ -389,7 +436,14 @@ func UpdatePost(user *User, input *PostUpdate) (*Post, error) {
 			return nil, err
 		}
 	}
+	err = SyncPolls(post.Id, cooked.Polls)
+	if err != nil {
+		return nil, err
+	}
+	RebakePostAfterOneboxes(post.Id, cooked.OneboxUrls)
 	notifyMentions(user, topic, post, cooked, true)
+	PublishToTopic(topic, map[string]interface{}{"type": "revised", "postId": post.Id, "postNumber": post.PostNumber})
+	TriggerBadgeGrant()
 	return post, nil
 }
 
@@ -455,6 +509,11 @@ func setPostDeleted(user *User, topic *Topic, post *Post, deleted bool) error {
 	if err != nil {
 		return err
 	}
+	kind := "recovered"
+	if deleted {
+		kind = "deleted"
+	}
+	PublishToTopic(topic, map[string]interface{}{"type": kind, "postId": post.Id, "postNumber": post.PostNumber})
 	if post.PostType != PostTypeRegular {
 		return nil
 	}
@@ -506,6 +565,10 @@ func GetPostReplies(user *User, topic *Topic, post *Post) ([]*Post, error) {
 		return nil, err
 	}
 	err = FillPostUserState(user, topic, posts)
+	if err != nil {
+		return nil, err
+	}
+	err = fillPostPolls(user, posts)
 	return posts, err
 }
 
@@ -577,6 +640,12 @@ func CountPosts(since time.Time) (int64, error) {
 	return session.Count(&Post{})
 }
 
+// PreviewMarkdown renders the composer's preview, waiting a little for the previews of new links.
 func PreviewMarkdown(raw string) string {
-	return CookMarkdown(raw).Html
+	cooked := CookMarkdown(raw)
+	if len(cooked.OneboxUrls) > 0 {
+		FetchOneboxes(cooked.OneboxUrls, 4*time.Second)
+		cooked = CookMarkdown(raw)
+	}
+	return cooked.Html
 }

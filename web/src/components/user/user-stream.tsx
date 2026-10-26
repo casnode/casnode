@@ -11,7 +11,24 @@ import { longDate, relativeAge } from "@/lib/format";
 import type { UserMap, UserPost } from "@/lib/types";
 import { topicUrl, userUrl } from "@/lib/utils";
 
-export function UserStream({ username, filter, initial, initialUsers, initialMore, empty }: { username: string; filter: string; initial: UserPost[]; initialUsers: UserMap; initialMore: boolean; empty: string }) {
+export function UserStream({
+  username,
+  filter,
+  initial,
+  initialUsers,
+  initialMore,
+  empty,
+  source,
+}: {
+  username: string;
+  filter: string;
+  initial: UserPost[];
+  initialUsers: UserMap;
+  initialMore: boolean;
+  empty: string;
+  // another list of posts than a user's activity, like a group's
+  source?: { path: string; params: Record<string, string> };
+}) {
   const { locale, categories, t } = useSite();
   const [items, setItems] = useState(initial);
   const [users, setUsers] = useState(initialUsers);
@@ -22,7 +39,7 @@ export function UserStream({ username, filter, initial, initialUsers, initialMor
   const loadMore = async () => {
     setLoading(true);
     try {
-      const res = await apiGet<{ posts: UserPost[]; users: UserMap; more: boolean }>("get-user-activity", { username, filter, page: page + 1 });
+      const res = await apiGet<{ posts: UserPost[]; users: UserMap; more: boolean }>(source?.path ?? "get-user-activity", { ...(source?.params ?? { username, filter }), page: page + 1 });
       setItems((list) => [...list, ...res.data.posts]);
       setUsers((u) => ({ ...u, ...res.data.users }));
       setMore(res.data.more);

@@ -190,3 +190,17 @@ func (c *ApiController) PerformReviewable() {
 	}
 	c.ResponseOk()
 }
+
+// SendTestEmail
+// @Title SendTestEmail
+// @Description sends a test email with the mail settings, to check them
+// @router /send-test-email [post]
+func (c *ApiController) SendTestEmail() {
+	if c.RequireAdmin() == nil {
+		return
+	}
+	if c.responseErr(object.SendTestEmail(c.GetString("to"))) {
+		return
+	}
+	c.ResponseOk()
+}

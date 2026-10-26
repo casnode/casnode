@@ -60,6 +60,9 @@ func StaticFilter(ctx *context.Context) {
 	if strings.HasPrefix(path, "/api/") {
 		return
 	}
+	// the pages don't use the session here (the Next.js server passes the cookie on to the API), and writing back the
+	// session read when a page started loading could undo a sign-in made meanwhile
+	ctx.Input.CruSession = nil
 	if strings.HasPrefix(path, "/uploads/") {
 		serveUpload(ctx)
 		return

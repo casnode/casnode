@@ -46,6 +46,9 @@ type User struct {
 	SuspendedTill time.Time `json:"suspendedTill"`
 	SuspendReason string    `xorm:"varchar(500)" json:"suspendReason,omitempty"`
 	SilencedTill  time.Time `json:"silencedTill"`
+	// how often to email notifications, see email.go
+	EmailLevel         int `json:"emailLevel,omitempty"`
+	EmailMessagesLevel int `json:"emailMessagesLevel,omitempty"`
 
 	TopicCount     int `json:"topicCount"`
 	PostCount      int `json:"postCount"`
@@ -100,6 +103,8 @@ func (u *User) Public() *User {
 	res := *u
 	res.Email = ""
 	res.BioRaw = ""
+	res.EmailLevel = 0
+	res.EmailMessagesLevel = 0
 	res.SuspendReason = ""
 	return &res
 }
@@ -185,6 +190,9 @@ func SyncCasdoorUser(account *CasdoorAccount) (*User, error) {
 			LastSeenAt:   time.Now(),
 		}
 		_, err = adapter.Engine.Insert(user)
+		if err == nil && isAdmin {
+			err = RefreshAutomaticGroups()
+		}
 		return user, err
 	}
 
@@ -196,6 +204,9 @@ func SyncCasdoorUser(account *CasdoorAccount) (*User, error) {
 		user.Admin = true
 	}
 	_, err = adapter.Engine.ID(user.Id).Cols("name", "avatar", "email", "casdoor_owner", "admin").Update(user)
+	if err == nil && isAdmin {
+		err = RefreshAutomaticGroups()
+	}
 	return user, err
 }
 
@@ -213,18 +224,28 @@ func EnsureLocalUser(username string) (*User, error) {
 		LastSeenAt: time.Now(),
 	}
 	_, err = adapter.Engine.Insert(user)
+	if err == nil && user.Admin {
+		err = RefreshAutomaticGroups()
+	}
 	return user, err
 }
 
 func UpdateUserProfile(user *User) error {
 	user.BioCooked = CookMarkdown(user.BioRaw).Html
-	_, err := adapter.Engine.ID(user.Id).Cols("bio_raw", "bio_cooked", "location", "website", "title", "locale").Update(user)
+	_, err := adapter.Engine.ID(user.Id).Cols("bio_raw", "bio_cooked", "location", "website", "title", "locale", "email_level", "email_messages_level").Update(user)
+	if err == nil {
+		TriggerBadgeGrant()
+	}
 	return err
 }
 
 func UpdateUserStaffFields(user *User) error {
 	_, err := adapter.Engine.ID(user.Id).Cols("admin", "moderator", "trust_level", "title", "suspended_till", "suspend_reason", "silenced_till").Update(user)
-	return err
+	if err != nil {
+		return err
+	}
+	TriggerBadgeGrant()
+	return RefreshAutomaticGroups()
 }
 
 var (

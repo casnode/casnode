@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/avatar";
 import { CategoryBadge } from "@/components/category-badge";
 import { Icon } from "@/components/icon";
+import { useMessageBus } from "@/components/message-bus";
 import { useSite } from "@/components/site-provider";
 import { TagList } from "@/components/tag-list";
 import { apiGet } from "@/lib/api";
@@ -151,7 +153,9 @@ export function TopicList({
   emptyMessage?: string;
   footer?: React.ReactNode;
 }) {
-  const { t } = useSite();
+  const { t, categories } = useSite();
+  const router = useRouter();
+  const [incoming, setIncoming] = useState<number[]>([]);
   const [topics, setTopics] = useState(initial.topics ?? []);
   const [users, setUsers] = useState(initial.users ?? {});
   const [page, setPage] = useState(initial.page ?? 0);
@@ -162,11 +166,35 @@ export function TopicList({
 
   if (prevInitial !== initial) {
     setPrevInitial(initial);
+    setIncoming([]);
     setTopics(initial.topics ?? []);
     setUsers(initial.users ?? {});
     setPage(initial.page ?? 0);
     setMore(initial.more);
   }
+
+  // new topics and replies while the list is open, offered like Discourse's "See 3 new or updated topics"
+  const live = ["latest", "new", "unread", "hot"].includes(query.filter) && !query.username && !query.order;
+  useMessageBus(live ? "/latest" : null, (message) => {
+    const data = message.data as { type: string; topicId: number; categoryId: number; archetype: string; tags: string[] | null };
+    if (data.archetype === "private_message" || (query.filter === "new" && data.type !== "created")) {
+      return;
+    }
+    if (query.categoryId) {
+      const category = categories.find((c) => c.id === query.categoryId);
+      if (data.categoryId !== query.categoryId && !(category?.subcategoryIds ?? []).includes(data.categoryId)) {
+        return;
+      }
+    }
+    if (query.tag && !(data.tags ?? []).includes(query.tag)) {
+      return;
+    }
+    // a reply to the topic already first in the list changes nothing worth showing
+    if (data.type === "bumped" && topics[0]?.id === data.topicId) {
+      return;
+    }
+    setIncoming((list) => (list.includes(data.topicId) ? list : [...list, data.topicId]));
+  });
 
   useEffect(() => {
     const el = sentinel.current;
@@ -209,14 +237,34 @@ export function TopicList({
     return () => observer.disconnect();
   }, [more, page, loading, query]);
 
+  const banner =
+    incoming.length > 0 ? (
+      <div className="show-more">
+        <button
+          type="button"
+          className="alert alert-info clickable show-more-topics"
+          onClick={() => {
+            setIncoming([]);
+            window.scrollTo({ top: 0 });
+            router.refresh();
+          }}
+        >
+          {t("list.newTopicsAvailable", { count: incoming.length })}
+        </button>
+      </div>
+    ) : null;
+
   if (topics.length === 0) {
     return (
-      <div className="topic-list-bottom">
-        <div className="footer-message">
-          <h3>{emptyMessage ?? t("list.noTopicsYet")}</h3>
-          {footer}
+      <>
+        {banner}
+        <div className="topic-list-bottom">
+          <div className="footer-message">
+            <h3>{emptyMessage ?? t("list.noTopicsYet")}</h3>
+            {footer}
+          </div>
         </div>
-      </div>
+      </>
     );
   }
 
@@ -224,6 +272,7 @@ export function TopicList({
 
   return (
     <>
+      {banner}
       <table className="topic-list">
         <thead className="topic-list-header">
           <tr>

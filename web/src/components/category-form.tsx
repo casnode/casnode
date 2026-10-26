@@ -1,12 +1,12 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { CategoryBadge } from "@/components/category-badge";
 import { useSite } from "@/components/site-provider";
-import { apiPost, errorMessage } from "@/lib/api";
-import type { Category } from "@/lib/types";
+import { apiGet, apiPost, errorMessage } from "@/lib/api";
+import type { Category, Group } from "@/lib/types";
 import { categoryUrl } from "@/lib/utils";
 
 const colors = ["0088CC", "12A89D", "25AAE2", "3AB54A", "9EB83B", "F7941D", "E45735", "BF1E2E", "ED207B", "652D90", "92278F", "8C6238", "808281", "231F20"];
@@ -19,7 +19,15 @@ export function CategoryForm({ category }: { category?: Category }) {
     category ?? { name: "", slug: "", description: "", color: "0088CC", textColor: "FFFFFF", parentId: 0, readRestricted: false, createRestricted: false, topicTemplate: "" },
   );
   const [busy, setBusy] = useState(false);
+  const [groups, setGroups] = useState<Group[]>([]);
   const set = (patch: Partial<Category>) => setForm((f) => ({ ...f, ...patch }));
+  const permissions = form.permissions ?? [];
+
+  useEffect(() => {
+    apiGet<Group[]>("get-groups")
+      .then((res) => setGroups(res.data ?? []))
+      .catch(() => undefined);
+  }, []);
 
   if (!currentUser?.admin) {
     return <div className="alert alert-info">{t("login.required")}</div>;
@@ -118,6 +126,43 @@ export function CategoryForm({ category }: { category?: Category }) {
           {t("categoryForm.createRestricted")}
         </label>
       </div>
+      {form.readRestricted || form.createRestricted ? (
+        <div className="control-group category-permissions">
+          <label className="form-label">{t("categoryForm.groupPermissions")}</label>
+          <div className="instructions mb-2">{t("categoryForm.groupPermissionsHelp")}</div>
+          {permissions.map((permission, i) => (
+            <div key={permission.groupId} className="mb-1 flex items-center gap-2">
+              <span className="min-w-[10em] font-bold">{groups.find((g) => g.id === permission.groupId)?.name ?? permission.groupId}</span>
+              <select
+                className="d-select max-w-[14em]"
+                value={permission.permissionType}
+                onChange={(e) => set({ permissions: permissions.map((p, j) => (j === i ? { ...p, permissionType: Number(e.target.value) } : p)) })}
+              >
+                <option value={1}>{t("categoryForm.permissionFull")}</option>
+                <option value={2}>{t("categoryForm.permissionCreatePost")}</option>
+                <option value={3}>{t("categoryForm.permissionReadonly")}</option>
+              </select>
+              <button type="button" className="btn btn-flat btn-small" onClick={() => set({ permissions: permissions.filter((_, j) => j !== i) })}>
+                {t("group.remove")}
+              </button>
+            </div>
+          ))}
+          <select
+            className="d-select max-w-[16em]"
+            value=""
+            onChange={(e) => e.target.value && set({ permissions: [...permissions, { groupId: Number(e.target.value), permissionType: 1 }] })}
+          >
+            <option value="">{t("categoryForm.addGroup")}</option>
+            {groups
+              .filter((g) => !permissions.some((p) => p.groupId === g.id))
+              .map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
+                </option>
+              ))}
+          </select>
+        </div>
+      ) : null}
       <div className="control-group">
         <label className="form-label">{t("categoryForm.position")}</label>
         <input className="d-input w-[7em]" type="number" value={form.position ?? 0} onChange={(e) => set({ position: Number(e.target.value) })} />

@@ -32,11 +32,15 @@ import (
 
 // CookedPost is a post's Markdown turned into the HTML shown to readers, with what was found on the way.
 type CookedPost struct {
-	Html     string
-	Excerpt  string
-	ImageUrl string
-	Mentions []string
-	Quotes   []string
+	Html          string
+	Excerpt       string
+	ImageUrl      string
+	Mentions      []string
+	GroupMentions []string
+	Quotes        []string
+	Polls         []*ParsedPoll
+	// links on a line of their own whose preview is not fetched yet
+	OneboxUrls []string
 }
 
 var markdown = goldmark.New(
@@ -49,8 +53,9 @@ var sanitizer = newSanitizer()
 
 func newSanitizer() *bluemonday.Policy {
 	p := bluemonday.UGCPolicy()
-	p.AllowAttrs("class").Matching(regexp.MustCompile(`^(quote|title|quote-title|mention|lang-[\w-]+|language-[\w-]+|footnote-ref|footnote-backref|footnotes|onebox|spoiler)(\s[\w-]+)*$`)).Globally()
+	p.AllowAttrs("class").Matching(regexp.MustCompile(`^(quote|title|quote-title|mention|lang-[\w-]+|language-[\w-]+|footnote-ref|footnote-backref|footnotes|onebox|spoiler|poll)(\s[\w-]+)*$`)).Globally()
 	p.AllowAttrs("data-username", "data-post", "data-topic").OnElements("aside")
+	p.AllowAttrs("data-poll-name").Matching(regexp.MustCompile(`^[\w.\-]{1,100}$`)).OnElements("div")
 	p.AllowElements("aside", "details", "summary", "mark", "kbd", "sup", "sub", "ins", "del")
 	p.AllowAttrs("open").OnElements("details")
 	p.AllowAttrs("width", "height", "loading", "alt", "title").OnElements("img")
@@ -135,33 +140,42 @@ func parseQuoteParams(params string) (string, string, string) {
 
 func CookMarkdown(raw string) *CookedPost {
 	res := &CookedPost{}
+	expanded, polls := expandPolls(raw)
 	var buf bytes.Buffer
-	err := markdown.Convert([]byte(expandBlocks(raw)), &buf)
+	err := markdown.Convert([]byte(expandBlocks(expanded)), &buf)
 	if err != nil {
 		res.Html = "<p>" + html.EscapeString(raw) + "</p>"
 		return res
 	}
 	cooked := sanitizer.Sanitize(buf.String())
-	res.Html, res.Mentions, res.Quotes = linkMentions(cooked)
+	res.Html, res.Mentions, res.GroupMentions, res.Quotes = linkMentions(cooked)
+	res.Polls = collectPollOptions(res.Html, polls)
+	res.Html, res.OneboxUrls = applyOneboxes(res.Html)
 	res.Excerpt, res.ImageUrl = makeExcerpt(res.Html)
 	return res
 }
 
-// linkMentions turns @name in the text (not in code or links) into a link to the profile, and collects the names
-// mentioned and quoted.
-func linkMentions(cooked string) (string, []string, []string) {
+type mentionTarget struct {
+	href  string
+	class string
+}
+
+// linkMentions turns @name in the text (not in code or links) into a link to the profile or the group, and collects
+// the users and groups mentioned and the users quoted.
+func linkMentions(cooked string) (string, []string, []string, []string) {
 	doc, err := xhtml.Parse(strings.NewReader("<div id=\"cooked\">" + cooked + "</div>"))
 	if err != nil {
-		return cooked, nil, nil
+		return cooked, nil, nil, nil
 	}
 	root := findElement(doc, "div")
 	if root == nil {
-		return cooked, nil, nil
+		return cooked, nil, nil, nil
 	}
 
 	mentions := []string{}
+	groupMentions := []string{}
 	quotes := []string{}
-	seen := map[string]bool{}
+	seen := map[string]*mentionTarget{}
 	var walk func(n *xhtml.Node, skip bool)
 	walk = func(n *xhtml.Node, skip bool) {
 		if n.Type == xhtml.ElementNode {
@@ -180,18 +194,22 @@ func linkMentions(cooked string) (string, []string, []string) {
 			n.Data = replaceEmoji(n.Data)
 		}
 		if n.Type == xhtml.TextNode && !skip && strings.Contains(n.Data, "@") {
-			replaceMentions(n, func(name string) bool {
+			replaceMentions(n, func(name string) *mentionTarget {
 				key := strings.ToLower(name)
-				if exists, ok := seen[key]; ok {
-					return exists
+				if target, ok := seen[key]; ok {
+					return target
 				}
+				var target *mentionTarget
 				user, err := GetUserByUsername(name)
-				exists := err == nil && user != nil
-				seen[key] = exists
-				if exists {
+				if err == nil && user != nil {
 					mentions = append(mentions, user.Username)
+					target = &mentionTarget{href: "/u/" + url.PathEscape(user.Username), class: "mention"}
+				} else if group, err := GetGroupByName(name); err == nil && group != nil {
+					groupMentions = append(groupMentions, group.Name)
+					target = &mentionTarget{href: "/g/" + url.PathEscape(group.Name), class: "mention-group"}
 				}
-				return exists
+				seen[key] = target
+				return target
 			})
 			return
 		}
@@ -207,10 +225,10 @@ func linkMentions(cooked string) (string, []string, []string) {
 	for c := root.FirstChild; c != nil; c = c.NextSibling {
 		_ = xhtml.Render(&buf, c)
 	}
-	return buf.String(), mentions, quotes
+	return buf.String(), mentions, groupMentions, quotes
 }
 
-func replaceMentions(n *xhtml.Node, found func(name string) bool) {
+func replaceMentions(n *xhtml.Node, found func(name string) *mentionTarget) {
 	text := n.Data
 	matches := mentionRegex.FindAllStringSubmatchIndex(text, -1)
 	if len(matches) == 0 {
@@ -222,15 +240,16 @@ func replaceMentions(n *xhtml.Node, found func(name string) bool) {
 		nameStart, nameEnd := m[4], m[5]
 		atPos := nameStart - 1
 		name := text[nameStart:nameEnd]
-		if !found(name) {
+		target := found(name)
+		if target == nil {
 			continue
 		}
 		if atPos > last {
 			parent.InsertBefore(&xhtml.Node{Type: xhtml.TextNode, Data: text[last:atPos]}, n)
 		}
 		link := &xhtml.Node{Type: xhtml.ElementNode, Data: "a", Attr: []xhtml.Attribute{
-			{Key: "class", Val: "mention"},
-			{Key: "href", Val: "/u/" + url.PathEscape(name)},
+			{Key: "class", Val: target.class},
+			{Key: "href", Val: target.href},
 		}}
 		link.AppendChild(&xhtml.Node{Type: xhtml.TextNode, Data: "@" + name})
 		parent.InsertBefore(link, n)

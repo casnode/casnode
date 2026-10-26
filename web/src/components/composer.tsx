@@ -5,13 +5,14 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Avatar } from "@/components/avatar";
-import { CategoryChooser, TagChooser, UserChooser } from "@/components/choosers";
+import { CategoryChooser, groupsAsUsers, TagChooser, UserChooser } from "@/components/choosers";
 import { postSavedEvent, useComposer, type PostSavedDetail } from "@/components/composer-provider";
 import { Cooked } from "@/components/cooked";
 import { Icon } from "@/components/icon";
 import { useSite } from "@/components/site-provider";
 import { apiGet, apiPost, errorMessage } from "@/lib/api";
-import type { Post, Topic, Upload, User } from "@/lib/types";
+import { PollBuilder } from "@/components/poll-builder";
+import type { Group, Post, Topic, Upload, User } from "@/lib/types";
 import { topicUrl, userUrl } from "@/lib/utils";
 
 interface Draft {
@@ -46,6 +47,7 @@ export function Composer() {
   const [height, setHeight] = useState(400);
   const [mention, setMention] = useState<{ term: string; start: number; users: User[]; index: number } | null>(null);
   const [loadedKey, setLoadedKey] = useState<number | null>(null);
+  const [pollBuilder, setPollBuilder] = useState(false);
 
   const action = composer?.action;
   const isFirstPostEdit = action === "edit" && composer?.post?.postNumber === 1;
@@ -235,8 +237,9 @@ export function Composer() {
     const term = match[2];
     const start = caret - term.length - 1;
     try {
-      const res = await apiGet<User[]>("search-users", { term });
-      setMention(res.data.length > 0 ? { term, start, users: res.data, index: 0 } : null);
+      const res = await apiGet<User[], Group[] | null>("search-users", { term, groups: "mention" });
+      const users = [...(res.data ?? []), ...groupsAsUsers(res.data2)];
+      setMention(users.length > 0 ? { term, start, users, index: 0 } : null);
     } catch {
       setMention(null);
     }
@@ -512,6 +515,11 @@ export function Composer() {
               <button type="button" className="btn btn-flat" title={t("composer.strikethrough")} onClick={() => wrap("~~", "~~", "strikethrough")}>
                 <Icon name="strikethrough" />
               </button>
+              {settings.poll_enabled !== "false" ? (
+                <button type="button" className="btn btn-flat" title={t("poll.build")} onClick={() => setPollBuilder(true)}>
+                  <Icon name="chart-bar" />
+                </button>
+              ) : null}
               <input
                 ref={fileRef}
                 type="file"
@@ -627,6 +635,15 @@ export function Composer() {
           {composer.author && composer.action === "edit" && composer.author.id !== currentUser.id ? <Avatar user={composer.author} size={24} /> : null}
         </div>
       </div>
+      {pollBuilder ? (
+        <PollBuilder
+          onClose={() => setPollBuilder(false)}
+          onInsert={(markdown) => {
+            setPollBuilder(false);
+            insertAtCaret(markdown);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

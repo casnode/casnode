@@ -167,6 +167,10 @@ func (c *ApiController) GetSite() {
 		if c.responseErr(err) {
 			return
 		}
+		counts["chatChannels"], counts["chatDirect"], err = object.CountUnreadChat(user)
+		if c.responseErr(err) {
+			return
+		}
 		if user.IsStaff() {
 			counts["reviewables"], err = object.CountPendingReviewables()
 			if c.responseErr(err) {

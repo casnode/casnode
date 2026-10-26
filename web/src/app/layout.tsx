@@ -3,15 +3,20 @@ import type { Metadata, Viewport } from "next";
 import { Toaster } from "sonner";
 import { Analytics } from "@/components/analytics";
 import { BrandStyle } from "@/components/brand-style";
+import { ChatProvider } from "@/components/chat/chat-provider";
 import { Composer } from "@/components/composer";
 import { ComposerProvider } from "@/components/composer-provider";
 import { SiteHeader } from "@/components/header";
+import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
 import { LayoutStateProvider } from "@/components/layout-state";
 import { MainOutlet } from "@/components/main-outlet";
+import { MessageBusProvider } from "@/components/message-bus";
 import { SiteProvider } from "@/components/site-provider";
+import { UserCardProvider } from "@/components/user-card";
 import { getOrigin, getSite } from "@/lib/server-api";
 import { getLocale } from "@/lib/server-i18n";
 import "./globals.css";
+import "./features.css";
 
 export async function generateMetadata(): Promise<Metadata> {
   const site = await getSite();
@@ -48,11 +53,18 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <BrandStyle />
           <LayoutStateProvider>
             <ComposerProvider>
-              {site.settings.header_html ? <div dangerouslySetInnerHTML={{ __html: site.settings.header_html }} /> : null}
-              <SiteHeader />
-              <MainOutlet>{children}</MainOutlet>
-              <Composer />
-              <Toaster position="top-center" richColors closeButton />
+              <MessageBusProvider>
+                <ChatProvider>
+                  <UserCardProvider>
+                    {site.settings.header_html ? <div dangerouslySetInnerHTML={{ __html: site.settings.header_html }} /> : null}
+                    <SiteHeader />
+                    <MainOutlet>{children}</MainOutlet>
+                    <Composer />
+                    <KeyboardShortcuts />
+                    <Toaster position="top-center" richColors closeButton />
+                  </UserCardProvider>
+                </ChatProvider>
+              </MessageBusProvider>
             </ComposerProvider>
           </LayoutStateProvider>
         </SiteProvider>

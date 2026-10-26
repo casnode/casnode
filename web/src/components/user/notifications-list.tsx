@@ -4,13 +4,13 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Avatar } from "@/components/avatar";
 import { Icon } from "@/components/icon";
-import { notificationUrl, notificationVerb } from "@/components/notification-item";
+import { notificationTitle, notificationUrl, notificationVerb } from "@/components/notification-item";
 import { useSite } from "@/components/site-provider";
 import { apiGet, apiPost } from "@/lib/api";
 import { longDate, relativeAge } from "@/lib/format";
 import type { Notification, UserMap } from "@/lib/types";
 
-const filters = ["all", "unread", "replies", "likes", "messages"] as const;
+const filters = ["all", "unread", "replies", "likes", "messages", "chat", "badges"] as const;
 
 export function NotificationsList() {
   const { t, locale, refreshSite } = useSite();
@@ -49,7 +49,7 @@ export function NotificationsList() {
     refreshSite().catch(() => undefined);
   };
 
-  const labels: Record<string, string> = { all: t("menu.all"), unread: "Unread", replies: t("menu.replies"), likes: t("menu.likes"), messages: t("menu.messages") };
+  const labels: Record<string, string> = { all: t("menu.all"), unread: "Unread", replies: t("menu.replies"), likes: t("menu.likes"), messages: t("menu.messages"), chat: t("chat.title"), badges: t("badge.badges") };
 
   return (
     <div>
@@ -83,7 +83,7 @@ export function NotificationsList() {
                       }
                     }}
                   >
-                    {n.topicTitle}
+                    {notificationTitle(n, t)}
                   </Link>
                   <span className="time" title={longDate(n.createdAt, locale)} suppressHydrationWarning>
                     {relativeAge(n.createdAt, locale)}

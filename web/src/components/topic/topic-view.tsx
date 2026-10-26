@@ -10,16 +10,18 @@ import { CategoryChooser, TagChooser } from "@/components/choosers";
 import { postSavedEvent, useComposer, type PostSavedDetail } from "@/components/composer-provider";
 import { Icon } from "@/components/icon";
 import { useLayoutState } from "@/components/layout-state";
+import { useMessageBus } from "@/components/message-bus";
 import { useSite } from "@/components/site-provider";
 import { TagList } from "@/components/tag-list";
 import { TopicList, TopicStatuses } from "@/components/topic-list";
 import { Post } from "@/components/topic/post";
+import { MovePostsModal } from "@/components/topic/move-posts";
 import { Timeline } from "@/components/topic/timeline";
 import { NotificationsButton, TopicAdminMenu } from "@/components/topic/topic-controls";
 import { TopicMap } from "@/components/topic/topic-map";
 import { apiGet, apiPost, errorMessage } from "@/lib/api";
 import type { Post as PostData, TopicView as TopicViewData, UserMap } from "@/lib/types";
-import { categoryUrl, topicUrl, userUrl } from "@/lib/utils";
+import { categoryUrl, groupUrl, topicUrl, userUrl } from "@/lib/utils";
 
 const chunk = 20;
 
@@ -40,6 +42,9 @@ export function TopicView({ initial, targetPostNumber }: { initial: TopicViewDat
   const [loading, setLoading] = useState<"" | "before" | "after">("");
   const [editingTitle, setEditingTitle] = useState(false);
   const [quote, setQuote] = useState<{ text: string; postNumber: number; username: string; x: number; y: number } | null>(null);
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState<number[]>([]);
+  const [moving, setMoving] = useState(false);
 
   if (prevInitial !== initial) {
     setPrevInitial(initial);
@@ -276,19 +281,9 @@ export function TopicView({ initial, targetPostNumber }: { initial: TopicViewDat
       }
       setStream((s) => (s.includes(fresh.postNumber) ? s : [...s, fresh.postNumber]));
       // posting in a topic starts tracking it, as the server has just recorded
-      setTopic((tp) => ({
-        ...tp,
-        postsCount: tp.postsCount + 1,
-        replyCount: tp.replyCount + 1,
-        highestPostNumber: fresh.postNumber,
-        lastPostedAt: fresh.createdAt,
-        notificationLevel: Math.max(tp.notificationLevel, 2),
-      }));
+      setTopic((tp) => ({ ...countNewPost(tp, fresh), notificationLevel: Math.max(tp.notificationLevel, 2) }));
       if (lastIndex === stream.length - 1) {
-        setPosts((list) => {
-          const updated = list.map((p) => (p.postNumber === fresh.replyToPostNumber ? { ...p, replyCount: p.replyCount + 1 } : p));
-          return [...updated, fresh];
-        });
+        setPosts((list) => appendPost(list, fresh));
         scrollTarget.current = fresh.postNumber;
       } else {
         const loaded = await fetchPosts([...stream.slice(-chunk + 1), fresh.postNumber]);
@@ -300,6 +295,54 @@ export function TopicView({ initial, targetPostNumber }: { initial: TopicViewDat
     window.addEventListener(postSavedEvent, onSaved);
     return () => window.removeEventListener(postSavedEvent, onSaved);
   }, [topic.id, fetchPosts, lastIndex, stream]);
+
+  // what others do in the topic shows up while it is open
+  useMessageBus(`/topic/${topic.id}`, async (message) => {
+    const data = message.data as { type: string; postId?: number; postNumber?: number; userId?: number };
+    const number = data.postNumber ?? 0;
+    const loaded = posts.some((p) => p.postNumber === number);
+    switch (data.type) {
+      case "created": {
+        if (stream.includes(number)) {
+          return;
+        }
+        const atEnd = lastIndex === stream.length - 1;
+        setStream((s) => (s.includes(number) ? s : [...s, number]));
+        if (!atEnd) {
+          setTopic((tp) => ({ ...tp, highestPostNumber: Math.max(tp.highestPostNumber, number), postsCount: tp.highestPostNumber >= number ? tp.postsCount : tp.postsCount + 1 }));
+          return;
+        }
+        const [fresh] = await fetchPosts([number]);
+        if (fresh) {
+          setTopic((tp) => countNewPost(tp, fresh));
+          setPosts((list) => appendPost(list, fresh));
+        }
+        return;
+      }
+      case "revised":
+      case "rebaked":
+      case "liked":
+      case "poll":
+      case "recovered":
+      case "deleted": {
+        if (!loaded) {
+          return;
+        }
+        const [fresh] = await fetchPosts([number]);
+        if (fresh) {
+          setPosts((list) => list.map((p) => (p.postNumber === number ? fresh : p)));
+        } else {
+          setPosts((list) => list.filter((p) => p.postNumber !== number));
+          setStream((s) => s.filter((n) => n !== number));
+        }
+        return;
+      }
+      case "status":
+      case "moved":
+        router.refresh();
+        return;
+    }
+  });
 
   // selecting text in a post offers to quote it
   useEffect(() => {
@@ -367,6 +410,11 @@ export function TopicView({ initial, targetPostNumber }: { initial: TopicViewDat
   };
 
   const refresh = () => router.refresh();
+  const toggleSelected = (post: PostData) => setSelected((list) => (list.includes(post.id) ? list.filter((id) => id !== post.id) : [...list, post.id]));
+  const stopSelecting = () => {
+    setSelecting(false);
+    setSelected([]);
+  };
   const lastPost = posts[posts.length - 1];
   const currentPost = posts.find((p) => p.postNumber === stream[current]);
   const isMessage = topic.archetype === "private_message";
@@ -415,6 +463,12 @@ export function TopicView({ initial, targetPostNumber }: { initial: TopicViewDat
                     </Link>
                   ) : null;
                 })}
+                {(details.allowedGroups ?? []).map((group) => (
+                  <Link key={`g${group.id}`} href={groupUrl(group.name)} className="inline-flex items-center gap-1 text-[var(--primary-high)]">
+                    <Icon name="users" />
+                    {group.name}
+                  </Link>
+                ))}
                 <InviteButton topicId={topic.id} onInvited={refresh} />
               </div>
             )}
@@ -443,6 +497,9 @@ export function TopicView({ initial, targetPostNumber }: { initial: TopicViewDat
                     onChange={onPostChange}
                     onDeleted={onPostDeleted}
                     onAddUsers={addUsers}
+                    selectable={selecting}
+                    selected={selected.includes(post.id)}
+                    onToggleSelect={toggleSelected}
                   />
                   {post.postNumber === 1 ? <TopicMap topic={topic} details={details} users={users} readingTime={initial.readingTime} /> : null}
                 </Fragment>
@@ -468,7 +525,7 @@ export function TopicView({ initial, targetPostNumber }: { initial: TopicViewDat
               ) : null}
               <div id="topic-footer-buttons">
                 <div className="topic-footer-main-buttons">
-                  <TopicAdminMenu topic={topic} details={details} onChange={refresh} />
+                  <TopicAdminMenu topic={topic} details={details} onChange={refresh} onSelectPosts={() => setSelecting(true)} />
                   <button
                     type="button"
                     className="btn btn-default share"
@@ -546,12 +603,51 @@ export function TopicView({ initial, targetPostNumber }: { initial: TopicViewDat
                   {t("topic.reply")}
                 </button>
               ) : null}
-              <TopicAdminMenu topic={topic} details={details} onChange={refresh} />
+              <TopicAdminMenu topic={topic} details={details} onChange={refresh} onSelectPosts={() => setSelecting(true)} />
             </>
           ) : null}
         </Timeline>
       </div>
 
+      {selecting ? (
+        <div className="selected-posts">
+          <p className="m-0">{t("move.selectedCount", { count: selected.length })}</p>
+          <button
+            type="button"
+            className="btn btn-default btn-small"
+            onClick={async () => {
+              // every post of the topic, loaded or not
+              const all = await fetchPosts(stream.slice(0, 100));
+              setSelected(all.filter((p) => p.postType === 1).map((p) => p.id));
+            }}
+          >
+            {t("move.selectAll")}
+          </button>
+          <button type="button" className="btn btn-default btn-small" onClick={() => setSelected([])}>
+            {t("move.deselectAll")}
+          </button>
+          <button type="button" className="btn btn-primary btn-small" disabled={selected.length === 0} onClick={() => setMoving(true)}>
+            <Icon name="arrow-right" />
+            {t("move.moveTo")}
+          </button>
+          <button type="button" className="btn btn-flat btn-small" onClick={stopSelecting}>
+            {t("common.cancel")}
+          </button>
+        </div>
+      ) : null}
+      {moving ? (
+        <MovePostsModal
+          topic={topic}
+          postIds={selected}
+          onClose={() => setMoving(false)}
+          onMoved={(destination) => {
+            setMoving(false);
+            stopSelecting();
+            router.push(topicUrl(destination));
+            router.refresh();
+          }}
+        />
+      ) : null}
       {quote ? (
         <button type="button" className="btn btn-primary btn-small fixed-quote" style={{ position: "absolute", left: quote.x, top: quote.y, zIndex: 900 }} onMouseDown={(e) => e.preventDefault()} onClick={quoteSelection}>
           <Icon name="quote-left" />
@@ -673,4 +769,26 @@ function SuggestedTopics({ view, isMessage, categoryName, categoryHref }: { view
       ) : null}
     </div>
   );
+}
+
+// countNewPost adds a post that just came in to the topic's numbers, once however many times it is reported.
+function countNewPost(topic: TopicViewData["topic"], post: PostData): TopicViewData["topic"] {
+  if (topic.highestPostNumber >= post.postNumber) {
+    return topic;
+  }
+  return {
+    ...topic,
+    postsCount: topic.postsCount + 1,
+    replyCount: topic.replyCount + 1,
+    highestPostNumber: post.postNumber,
+    lastPostedAt: post.createdAt,
+  };
+}
+
+function appendPost(list: PostData[], post: PostData): PostData[] {
+  if (list.some((p) => p.id === post.id)) {
+    return list;
+  }
+  const updated = list.map((p) => (p.postNumber === post.replyToPostNumber ? { ...p, replyCount: p.replyCount + 1 } : p));
+  return [...updated, post];
 }

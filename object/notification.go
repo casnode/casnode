@@ -30,22 +30,39 @@ const (
 	NotificationPrivateMessage          = 6
 	NotificationInvitedToPrivateMessage = 7
 	NotificationPosted                  = 9
+	NotificationGrantedBadge            = 12
+	NotificationMovedPost               = 14
+	NotificationGroupMentioned          = 15
 	NotificationAdminMessage            = 20
+	NotificationMembershipAccepted      = 22
+	NotificationMembershipRequest       = 23
+	NotificationChatMention             = 29
+	NotificationChatMessage             = 30
+)
+
+// Whether the email of a notification went out.
+const (
+	EmailPending = 0
+	EmailSent    = 1
+	EmailSkipped = 2
 )
 
 type Notification struct {
-	Id               int64     `xorm:"pk autoincr" json:"id"`
-	UserId           int64     `xorm:"index" json:"userId"`
-	NotificationType int       `json:"notificationType"`
-	TopicId          int64     `xorm:"index" json:"topicId"`
-	PostNumber       int       `json:"postNumber"`
-	ActingUserId     int64     `json:"actingUserId"`
-	TopicTitle       string    `xorm:"varchar(300)" json:"topicTitle"`
-	Slug             string    `xorm:"varchar(300)" json:"slug"`
-	Excerpt          string    `xorm:"varchar(500)" json:"excerpt,omitempty"`
-	IsRead           bool      `xorm:"index" json:"read"`
-	IsHighPriority   bool      `json:"highPriority"`
-	CreatedAt        time.Time `xorm:"created index" json:"createdAt"`
+	Id               int64  `xorm:"pk autoincr" json:"id"`
+	UserId           int64  `xorm:"index" json:"userId"`
+	NotificationType int    `json:"notificationType"`
+	TopicId          int64  `xorm:"index" json:"topicId"`
+	PostNumber       int    `json:"postNumber"`
+	ActingUserId     int64  `json:"actingUserId"`
+	TopicTitle       string `xorm:"varchar(300)" json:"topicTitle"`
+	Slug             string `xorm:"varchar(300)" json:"slug"`
+	Excerpt          string `xorm:"varchar(500)" json:"excerpt,omitempty"`
+	IsRead           bool   `xorm:"index" json:"read"`
+	IsHighPriority   bool   `json:"highPriority"`
+	// what the notification is about when it is not a post: the badge, the group, the chat message (JSON)
+	Data        string    `xorm:"varchar(1000)" json:"data,omitempty"`
+	EmailStatus int       `xorm:"index" json:"-"`
+	CreatedAt   time.Time `xorm:"created index" json:"createdAt"`
 }
 
 func addNotification(notification *Notification, topic *Topic) error {
@@ -57,13 +74,18 @@ func addNotification(notification *Notification, topic *Topic) error {
 		notification.Slug = topic.Slug
 	}
 	_, err := adapter.Engine.Insert(notification)
-	return err
+	if err != nil {
+		return err
+	}
+	PublishToUsers("/notification", []int64{notification.UserId}, map[string]interface{}{"type": notification.NotificationType, "id": notification.Id})
+	return nil
 }
 
 // notifyNewPost tells everyone who should know about a new post, each once: mentioned, quoted, replied to, the
 // participants of a message and the topic's watchers, in that order of priority.
 func notifyNewPost(author *User, topic *Topic, post *Post, cooked *CookedPost) {
 	targets := map[int64]int{}
+	targetData := map[int64]string{}
 	order := []int64{}
 	add := func(userId int64, notificationType int) {
 		if userId == 0 || userId == author.Id {
@@ -79,6 +101,21 @@ func notifyNewPost(author *User, topic *Topic, post *Post, cooked *CookedPost) {
 	for _, user := range getMentionedUsers(cooked.Mentions) {
 		add(user.Id, NotificationMentioned)
 	}
+	for _, group := range getMentionedGroups(author, cooked.GroupMentions) {
+		ids, err := GetGroupMemberIds(group.Id)
+		if err != nil {
+			logs.Error("notifyNewPost(): %v", err)
+		}
+		if len(ids) > maxGroupMentionNotifications {
+			ids = ids[:maxGroupMentionNotifications]
+		}
+		for _, id := range ids {
+			if _, ok := targets[id]; !ok && id != author.Id {
+				targetData[id] = toJson(map[string]interface{}{"groupName": group.Name})
+			}
+			add(id, NotificationGroupMentioned)
+		}
+	}
 	for _, user := range getMentionedUsers(cooked.Quotes) {
 		add(user.Id, NotificationQuoted)
 	}
@@ -90,6 +127,7 @@ func notifyNewPost(author *User, topic *Topic, post *Post, cooked *CookedPost) {
 		if err != nil {
 			logs.Error("notifyNewPost(): %v", err)
 		}
+		ids = append(ids, getTopicGroupMemberIds(topic.Id)...)
 		for _, id := range ids {
 			add(id, NotificationPrivateMessage)
 		}
@@ -128,6 +166,7 @@ func notifyNewPost(author *User, topic *Topic, post *Post, cooked *CookedPost) {
 			ActingUserId:     author.Id,
 			Excerpt:          truncateRunes(cooked.Excerpt, 200),
 			IsHighPriority:   notificationType == NotificationPrivateMessage,
+			Data:             targetData[userId],
 		}, topic)
 		if err != nil {
 			logs.Error("notifyNewPost(): %v", err)
@@ -185,6 +224,27 @@ func getMentionedUsers(usernames []string) []*User {
 	return users
 }
 
+const maxGroupMentionNotifications = 100
+
+// getMentionedGroups are the groups mentioned that the author may mention.
+func getMentionedGroups(author *User, names []string) []*Group {
+	if len(names) == 0 {
+		return nil
+	}
+	groups, err := GetGroupsByNames(names)
+	if err != nil {
+		logs.Error("getMentionedGroups(): %v", err)
+		return nil
+	}
+	res := []*Group{}
+	for _, group := range groups {
+		if CanMentionGroup(author, group) {
+			res = append(res, group)
+		}
+	}
+	return res
+}
+
 func canUserSeeTopic(userId int64, topic *Topic) bool {
 	user, err := GetUser(userId)
 	if err != nil || user == nil {
@@ -195,9 +255,11 @@ func canUserSeeTopic(userId int64, topic *Topic) bool {
 }
 
 var notificationFilters = map[string][]int{
-	"replies":  {NotificationMentioned, NotificationReplied, NotificationQuoted, NotificationPosted},
+	"replies":  {NotificationMentioned, NotificationReplied, NotificationQuoted, NotificationPosted, NotificationGroupMentioned},
 	"likes":    {NotificationLiked},
-	"messages": {NotificationPrivateMessage, NotificationInvitedToPrivateMessage, NotificationAdminMessage},
+	"messages": {NotificationPrivateMessage, NotificationInvitedToPrivateMessage, NotificationAdminMessage, NotificationMembershipRequest, NotificationMembershipAccepted},
+	"chat":     {NotificationChatMention, NotificationChatMessage},
+	"badges":   {NotificationGrantedBadge},
 }
 
 type NotificationList struct {

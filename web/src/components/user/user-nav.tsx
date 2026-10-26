@@ -16,6 +16,7 @@ export function UserNav({ username }: { username: string }) {
   const tabs: { href: string; key: MessageKey; icon: string; show: boolean; match: (p: string) => boolean }[] = [
     { href: `${base}/summary`, key: "user.summary", icon: "user", show: true, match: (p) => p === base || p.startsWith(`${base}/summary`) },
     { href: `${base}/activity`, key: "user.activity", icon: "list", show: true, match: (p) => p.startsWith(`${base}/activity`) },
+    { href: `${base}/badges`, key: "user.badges", icon: "certificate", show: true, match: (p) => p.startsWith(`${base}/badges`) },
     { href: `${base}/notifications`, key: "user.notifications", icon: "bell", show: self, match: (p) => p.startsWith(`${base}/notifications`) },
     { href: `${base}/messages`, key: "user.messages", icon: "envelope", show: self || !!currentUser?.admin, match: (p) => p.startsWith(`${base}/messages`) },
     { href: `${base}/preferences`, key: "user.preferences", icon: "gear", show: self || staff, match: (p) => p.startsWith(`${base}/preferences`) },

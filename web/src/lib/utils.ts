@@ -1,6 +1,6 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import type { Category, Topic, User } from "@/lib/types";
+import type { Badge, Category, ChatChannel, Topic, User } from "@/lib/types";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -82,4 +82,27 @@ export function isStaff(user?: User | null): boolean {
 
 export function displayName(user?: User | null): string {
   return user ? user.username : "";
+}
+
+export function groupUrl(name: string, tab?: string): string {
+  return `/g/${encodeURIComponent(name)}${tab ? `/${tab}` : ""}`;
+}
+
+export function badgeUrl(badge: Pick<Badge, "id" | "name">): string {
+  const slug = badge.name.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "") || "badge";
+  return `/badges/${badge.id}/${encodeURIComponent(slug)}`;
+}
+
+export function chatChannelUrl(channel: Pick<ChatChannel, "id" | "slug">, messageId?: number): string {
+  const base = `/chat/c/${encodeURIComponent(channel.slug || "dm")}/${channel.id}`;
+  return messageId ? `${base}/${messageId}` : base;
+}
+
+// A direct channel is named after the other people in it.
+export function chatChannelTitle(channel: ChatChannel, currentUser?: User | null): string {
+  if (channel.channelType !== "direct") {
+    return channel.name;
+  }
+  const others = (channel.directUsers ?? []).filter((u) => u.id !== currentUser?.id);
+  return (others.length > 0 ? others : channel.directUsers ?? []).map((u) => u.username).join(", ");
 }

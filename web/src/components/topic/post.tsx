@@ -26,6 +26,9 @@ export interface PostProps {
   onChange: (post: PostData) => void;
   onDeleted: (post: PostData) => void;
   onAddUsers: (users: UserMap) => void;
+  selectable?: boolean;
+  selected?: boolean;
+  onToggleSelect?: (post: PostData) => void;
 }
 
 function PostNames({ user }: { user?: User }) {
@@ -81,7 +84,7 @@ function EmbeddedPosts({ posts, users, topic, top }: { posts: PostData[]; users:
   );
 }
 
-export function Post({ post, topic, users, previousPostNumber, nextPost, canReply, highlighted, onChange, onDeleted, onAddUsers }: PostProps) {
+export function Post({ post, topic, users, previousPostNumber, nextPost, canReply, highlighted, onChange, onDeleted, onAddUsers, selectable, selected, onToggleSelect }: PostProps) {
   const { t, locale, currentUser, login } = useSite();
   const { open: openComposer } = useComposer();
   const [showMore, setShowMore] = useState(false);
@@ -242,6 +245,11 @@ export function Post({ post, topic, users, previousPostNumber, nextPost, canRepl
       data-post-id={post.id}
     >
       <article className="boxed onscreen-post" aria-label={`post #${post.postNumber} by @${author?.username ?? ""}`}>
+        {selectable ? (
+          <label className="select-post">
+            <input type="checkbox" checked={!!selected} onChange={() => onToggleSelect?.(post)} />
+          </label>
+        ) : null}
         <div className="row">
           <div className="topic-avatar">
             <Link href={author ? userUrl(author.username) : "#"} className="trigger-user-card" aria-hidden="true" tabIndex={-1}>
@@ -291,7 +299,7 @@ export function Post({ post, topic, users, previousPostNumber, nextPost, canRepl
                   </button>
                 </div>
               ) : (
-                <Cooked html={post.cooked} />
+                <Cooked html={post.cooked} polls={post.polls} postId={post.id} onPollChange={(poll) => onChange({ ...post, polls: (post.polls ?? []).map((p) => (p.name === poll.name ? poll : p)) })} />
               )}
               {likers ? (
                 <div className="post-likers">
@@ -352,7 +360,7 @@ export function Post({ post, topic, users, previousPostNumber, nextPost, canRepl
                           </button>
                         ) : null}
                         {currentUser ? (
-                          <button type="button" className={post.bookmarked ? "bookmarked" : ""} title={post.bookmarked ? t("topic.removeBookmark") : t("topic.bookmarkPost")} onClick={toggleBookmark}>
+                          <button type="button" className={`bookmark${post.bookmarked ? " bookmarked" : ""}`} title={post.bookmarked ? t("topic.removeBookmark") : t("topic.bookmarkPost")} onClick={toggleBookmark}>
                             <Icon name={post.bookmarked ? "bookmark" : "far-bookmark"} />
                           </button>
                         ) : null}

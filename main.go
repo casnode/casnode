@@ -30,6 +30,7 @@ import (
 func main() {
 	object.InitAdapter()
 	object.InitData()
+	object.InitFeatures()
 
 	web.BConfig.WebConfig.Session.SessionOn = true
 	web.BConfig.WebConfig.Session.SessionName = "casnode_session_id"

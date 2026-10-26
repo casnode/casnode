@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/avatar";
 import { CategoryBadge } from "@/components/category-badge";
+import { useChat } from "@/components/chat/chat-provider";
 import { Icon } from "@/components/icon";
 import { useLayoutState } from "@/components/layout-state";
 import { SearchMenu } from "@/components/search-menu";
@@ -13,6 +14,7 @@ import { UserMenu } from "@/components/user-menu";
 export function SiteHeader() {
   const { currentUser, settings, site, t, login, categoryById, categories } = useSite();
   const { toggleSidebar, sidebarVisible, headerTopic } = useLayoutState();
+  const chat = useChat();
   const [panel, setPanel] = useState<"" | "search" | "user">("");
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -129,6 +131,18 @@ export function SiteHeader() {
                     <Icon name="search" />
                   </button>
                 </li>
+                {chat.enabled ? (
+                  <li>
+                    <Link href="/chat" className="header-icon-button chat-header-icon" aria-label={t("chat.title")} title={t("chat.title")}>
+                      <Icon name="comment" />
+                      {chat.unreadDirect > 0 ? (
+                        <span className="badge-notification unread-high-priority-notifications">{chat.unreadDirect}</span>
+                      ) : chat.unreadChannels > 0 ? (
+                        <span className="chat-channel-unread-indicator" />
+                      ) : null}
+                    </Link>
+                  </li>
+                ) : null}
                 {currentUser ? (
                   <li>
                     <button

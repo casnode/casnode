@@ -29,6 +29,7 @@ type ApiController struct {
 	web.Controller
 	user       *object.User
 	userLoaded bool
+	skipTouch  bool
 }
 
 type Response struct {
@@ -111,7 +112,9 @@ func (c *ApiController) GetSessionUser() *object.User {
 	if object.IsConfigAdmin(user.Username) {
 		user.Admin = true
 	}
-	object.TouchUser(user)
+	if !c.skipTouch {
+		object.TouchUser(user)
+	}
 	c.user = user
 	return user
 }

@@ -63,6 +63,8 @@ type Topic struct {
 	PosterIds         []int64   `xorm:"varchar(500)" json:"posterIds"`
 	Tags              []string  `xorm:"varchar(1000)" json:"tags"`
 	HotScore          float64   `xorm:"index" json:"-"`
+	// the topic this one was merged into, where its address now leads
+	MergedIntoId int64 `json:"mergedIntoId,omitempty"`
 
 	// what the signed-in user has done with the topic
 	LastReadPostNumber int  `xorm:"-" json:"lastReadPostNumber"`
@@ -104,7 +106,11 @@ func CanSeeTopic(user *User, topic *Topic) (bool, error) {
 		if user.Admin {
 			return true, nil
 		}
-		return IsTopicAllowedUser(topic.Id, user.Id)
+		allowed, err := IsTopicAllowedUser(topic.Id, user.Id)
+		if err != nil || allowed {
+			return allowed, err
+		}
+		return isTopicAllowedGroupMember(topic.Id, user), nil
 	}
 	category, err := GetCategory(topic.CategoryId)
 	if err != nil {
@@ -123,6 +129,7 @@ type TopicListQuery struct {
 	Ascending  bool
 	Page       int
 	UserId     int64 // topics of this user (created / posted / messages)
+	GroupId    int64 // the messages of this group
 	PageSize   int
 }
 
@@ -205,9 +212,12 @@ func newTopicListSession(user *User, query *TopicListQuery) (*xorm.Session, erro
 			userId = query.UserId
 		}
 		session = session.And("topic.archetype = ?", ArchetypePrivateMessage)
-		if query.Filter == "private_messages_sent" {
+		switch query.Filter {
+		case "private_messages_sent":
 			session = session.And("topic.user_id = ?", userId)
-		} else {
+		case "private_messages_group":
+			session = session.And(builder.In("topic.id", builder.Select("topic_id").From("topic_allowed_group").Where(builder.Eq{"group_id": query.GroupId})))
+		default:
 			session = session.And(builder.In("topic.id", builder.Select("topic_id").From("topic_allowed_user").Where(builder.Eq{"user_id": userId})))
 		}
 		return session, nil
@@ -474,6 +484,7 @@ func CreateTopic(user *User, input *NewTopic) (*Topic, error) {
 	}
 
 	recipients := []*User{}
+	recipientGroups := []*Group{}
 	if input.Archetype == ArchetypePrivateMessage {
 		if !GetSiteSettingBool("enable_personal_messages") && !user.IsStaff() {
 			return nil, fmt.Errorf("Personal messages are turned off")
@@ -486,7 +497,30 @@ func CreateTopic(user *User, input *NewTopic) (*Topic, error) {
 		if err != nil {
 			return nil, err
 		}
-		if len(recipients) == 0 {
+		// the names that are not users are groups
+		groupNames := []string{}
+		for _, name := range input.Recipients {
+			found := false
+			for _, recipient := range recipients {
+				found = found || strings.EqualFold(recipient.Username, name)
+			}
+			if !found {
+				groupNames = append(groupNames, name)
+			}
+		}
+		recipientGroups, err = GetGroupsByNames(groupNames)
+		if err != nil {
+			return nil, err
+		}
+		if len(recipientGroups) < len(groupNames) {
+			return nil, fmt.Errorf("Some of the recipients don't exist")
+		}
+		for _, group := range recipientGroups {
+			if !CanMessageGroup(user, group) {
+				return nil, fmt.Errorf("You can't send messages to the group %s", group.Name)
+			}
+		}
+		if len(recipients) == 0 && len(recipientGroups) == 0 {
 			return nil, fmt.Errorf("Add at least one recipient")
 		}
 		topic.Archetype = ArchetypePrivateMessage
@@ -532,6 +566,10 @@ func CreateTopic(user *User, input *NewTopic) (*Topic, error) {
 	topic.PosterIds = []int64{user.Id}
 	topic.WordCount = countWords(input.Raw)
 	cooked := CookMarkdown(input.Raw)
+	err = validatePolls(cooked.Polls)
+	if err != nil {
+		return nil, err
+	}
 	topic.Excerpt = cooked.Excerpt
 	topic.ImageUrl = cooked.ImageUrl
 	_, err = adapter.Engine.Insert(topic)
@@ -564,6 +602,12 @@ func CreateTopic(user *User, input *NewTopic) (*Topic, error) {
 				return nil, err
 			}
 		}
+		for _, group := range recipientGroups {
+			_, err = adapter.Engine.Insert(&TopicAllowedGroup{TopicId: topic.Id, GroupId: group.Id})
+			if err != nil {
+				return nil, err
+			}
+		}
 	} else {
 		err = setTopicTags(topic.Id, topic.Tags)
 		if err != nil {
@@ -585,7 +629,14 @@ func CreateTopic(user *User, input *NewTopic) (*Topic, error) {
 		return nil, err
 	}
 
+	err = SyncPolls(post.Id, cooked.Polls)
+	if err != nil {
+		return nil, err
+	}
+	RebakePostAfterOneboxes(post.Id, cooked.OneboxUrls)
 	notifyNewPost(user, topic, post, cooked)
+	PublishLatest(topic, "created")
+	TriggerBadgeGrant()
 	return topic, nil
 }
 
@@ -707,7 +758,7 @@ func SetTopicStatus(user *User, topicId int64, status string, enabled bool) erro
 	}
 
 	actionCode := fmt.Sprintf("%s.%s", status, map[bool]string{true: "enabled", false: "disabled"}[enabled])
-	return addSmallAction(user, topic, actionCode)
+	return addSmallAction(user, topic, actionCode, "")
 }
 
 func DeleteTopic(user *User, topicId int64) error {
@@ -749,6 +800,7 @@ func setTopicDeleted(user *User, topic *Topic, deleted bool) error {
 		return err
 	}
 
+	PublishToTopic(topic, map[string]interface{}{"type": "status"})
 	delta := 1
 	if deleted {
 		delta = -1

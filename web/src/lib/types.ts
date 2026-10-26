@@ -28,6 +28,10 @@ export interface User {
   daysVisited?: number;
   postsReadCount?: number;
   topicsEntered?: number;
+  emailLevel?: number;
+  emailMessagesLevel?: number;
+  // a group offered among users, for @mentions and message recipients
+  isGroup?: boolean;
 }
 
 export type UserMap = Record<string, User>;
@@ -49,6 +53,7 @@ export interface Category {
   topicsWeek: number;
   topicsMonth: number;
   subcategoryIds: number[] | null;
+  permissions: { groupId: number; permissionType: number }[] | null;
 }
 
 export interface Tag {
@@ -90,6 +95,7 @@ export interface Topic {
   unreadPosts: number;
   unseen: boolean;
   notificationLevel: number;
+  mergedIntoId?: number;
 }
 
 export interface TopicList {
@@ -125,6 +131,7 @@ export interface Post {
   canEdit: boolean;
   canDelete: boolean;
   canRecover: boolean;
+  polls?: Poll[];
 }
 
 export interface TopicDetails {
@@ -132,6 +139,8 @@ export interface TopicDetails {
   lastPoster: number;
   participants: { userId: number; postCount: number }[] | null;
   allowedUserIds: number[] | null;
+  allowedGroups: Group[] | null;
+  canMovePosts: boolean;
   canEdit: boolean;
   canReply: boolean;
   canModerate: boolean;
@@ -175,6 +184,7 @@ export interface Notification {
   excerpt?: string;
   read: boolean;
   highPriority: boolean;
+  data?: string;
   createdAt: string;
 }
 
@@ -243,7 +253,178 @@ export const NotificationType = {
   PrivateMessage: 6,
   InvitedToPrivateMessage: 7,
   Posted: 9,
+  GrantedBadge: 12,
+  MovedPost: 14,
+  GroupMentioned: 15,
   AdminMessage: 20,
+  MembershipAccepted: 22,
+  MembershipRequest: 23,
+  ChatMention: 29,
+  ChatMessage: 30,
 } as const;
 
 export const PostAction = { Bookmark: 1, Like: 2, OffTopic: 3, Inappropriate: 4, NotifyModerators: 7, Spam: 8 } as const;
+
+export interface Group {
+  id: number;
+  name: string;
+  fullName: string;
+  bioRaw?: string;
+  bioCooked?: string;
+  automatic: boolean;
+  visibility: number;
+  mentionableLevel: number;
+  messageableLevel: number;
+  publicJoin: boolean;
+  publicExit: boolean;
+  allowRequests: boolean;
+  title: string;
+  userCount: number;
+  createdAt: string;
+  isMember?: boolean;
+  isOwner?: boolean;
+  requested?: boolean;
+  canManage?: boolean;
+  canMention?: boolean;
+  canMessage?: boolean;
+  requestCount?: number;
+}
+
+export interface GroupMember {
+  user: User;
+  owner: boolean;
+  addedAt: string;
+}
+
+export interface Badge {
+  id: number;
+  name: string;
+  code: string;
+  description: string;
+  longDescription: string;
+  icon: string;
+  imageUrl: string;
+  badgeType: number;
+  grouping: string;
+  multipleGrant: boolean;
+  allowTitle: boolean;
+  enabled: boolean;
+  system: boolean;
+  grantCount: number;
+  granted?: boolean;
+}
+
+export interface UserBadgeSummary {
+  badge: Badge;
+  count: number;
+  grantedAt: string;
+}
+
+export interface BadgeGrant {
+  id: number;
+  user: User;
+  grantedAt: string;
+  topic?: Topic;
+  post?: Post;
+  reason?: string;
+}
+
+export interface UserCard {
+  user: User;
+  badges: UserBadgeSummary[];
+  badgeCount: number;
+  groups: Group[];
+  canMessage: boolean;
+  canChat: boolean;
+}
+
+export interface PollOption {
+  id: string;
+  html: string;
+  votes: number;
+}
+
+export interface Poll {
+  id: number;
+  postId: number;
+  name: string;
+  type: "regular" | "multiple";
+  status: "open" | "closed";
+  results: "always" | "on_vote" | "on_close" | "staff_only";
+  public: boolean;
+  min: number;
+  max: number;
+  chartType: string;
+  closeAt: string;
+  options: PollOption[];
+  voters: number;
+  userVotes: string[];
+  resultsHidden: boolean;
+  canClose: boolean;
+}
+
+export interface ChatMembership {
+  id: number;
+  channelId: number;
+  userId: number;
+  following: boolean;
+  muted: boolean;
+  lastReadMessageId: number;
+}
+
+export interface ChatChannel {
+  id: number;
+  name: string;
+  slug: string;
+  description: string;
+  channelType: "category" | "direct";
+  categoryId: number;
+  status: "open" | "read_only" | "closed" | "archived";
+  userCount: number;
+  messageCount: number;
+  lastMessageId: number;
+  lastMessageAt: string;
+  createdAt: string;
+  membership?: ChatMembership;
+  unreadCount: number;
+  directUsers?: User[];
+  canSend: boolean;
+  canModerate: boolean;
+}
+
+export interface ChatReaction {
+  emoji: string;
+  count: number;
+  reacted: boolean;
+  usernames: string[];
+}
+
+export interface ChatMessage {
+  id: number;
+  channelId: number;
+  userId: number;
+  raw?: string;
+  cooked: string;
+  excerpt: string;
+  inReplyToId: number;
+  edited: boolean;
+  deleted: boolean;
+  createdAt: string;
+  updatedAt: string;
+  reactions: ChatReaction[];
+  inReplyTo?: { id: number; userId: number; excerpt: string };
+}
+
+export interface ChatMessageList {
+  messages: ChatMessage[];
+  users: UserMap;
+  morePast: boolean;
+  moreFuture: boolean;
+}
+
+export interface BusMessage {
+  id: number;
+  channel: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  data: any;
+}

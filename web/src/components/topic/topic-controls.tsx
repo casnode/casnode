@@ -59,7 +59,7 @@ export function NotificationsButton({ topic, onChange, showReason }: { topic: To
 }
 
 // The wrench menu staff use to close, pin, archive, unlist or delete a topic.
-export function TopicAdminMenu({ topic, details, onChange }: { topic: Topic; details: TopicDetails; onChange: () => void }) {
+export function TopicAdminMenu({ topic, details, onChange, onSelectPosts }: { topic: Topic; details: TopicDetails; onChange: () => void; onSelectPosts?: () => void }) {
   const { t } = useSite();
   const router = useRouter();
 
@@ -144,6 +144,12 @@ export function TopicAdminMenu({ topic, details, onChange }: { topic: Topic; det
               {topic.visible ? t("admin.unlist") : t("admin.list")}
             </DropdownMenuItem>
           </>
+        ) : null}
+        {details.canMovePosts && onSelectPosts ? (
+          <DropdownMenuItem onSelect={onSelectPosts}>
+            <Icon name="square-check" />
+            {t("move.selectPosts")}
+          </DropdownMenuItem>
         ) : null}
         {details.canDelete || details.canRecover ? <DropdownMenuSeparator /> : null}
         {details.canDelete && !topic.deleted ? (

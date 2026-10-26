@@ -86,8 +86,27 @@ func refreshHotScores() error {
 	return nil
 }
 
+// InitFeatures creates what the newer features need on an existing forum too: the automatic groups, the system
+// badges and the first chat channel.
+func InitFeatures() {
+	for _, step := range []func() error{EnsureAutomaticGroups, EnsureBadges, EnsureDefaultChatChannel} {
+		err := step()
+		if err != nil {
+			panic(err)
+		}
+	}
+}
+
 func RunPeriodicJobs() {
+	go runBadgeWorker()
+	go func() {
+		for {
+			sendNotificationEmails()
+			time.Sleep(time.Minute)
+		}
+	}()
 	for {
+		refreshOldOneboxes()
 		err := refreshHotScores()
 		if err != nil {
 			logs.Error("refreshHotScores(): %v", err)

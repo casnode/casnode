@@ -131,6 +131,8 @@ func LikePost(user *User, postId int64, enabled bool) (*Post, error) {
 	}
 	incrUser(user.Id, "likes_given", delta)
 	incrUser(post.UserId, "likes_received", delta)
+	PublishToTopic(topic, map[string]interface{}{"type": "liked", "postId": post.Id, "postNumber": post.PostNumber, "likeCount": post.LikeCount})
+	TriggerBadgeGrant()
 	if enabled {
 		notifyLike(user, topic, post)
 	}
