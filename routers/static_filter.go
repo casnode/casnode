@@ -44,7 +44,7 @@ func InitFrontendProxy(port int) {
 		r.Header.Set("X-Accept-Encoding", r.Header.Get("Accept-Encoding"))
 		r.Header.Del("Accept-Encoding")
 	}
-	frontendProxy.ModifyResponse = compressFrontendResponse
+	frontendProxy.ModifyResponse = modifyFrontendResponse
 	frontendProxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Header().Set("Retry-After", "10")
@@ -110,17 +110,30 @@ var uploadContentTypes = map[string]string{
 	"txt":  "text/plain; charset=utf-8",
 }
 
-func compressFrontendResponse(resp *http.Response) error {
+// modifyFrontendResponse points the static files at the CDN (see cdn.go) and compresses the response.
+func modifyFrontendResponse(resp *http.Response) error {
 	contentType := resp.Header.Get("Content-Type")
-	if !isCompressible(contentType) || resp.Header.Get("Content-Encoding") != "" {
+	if resp.Header.Get("Content-Encoding") != "" {
 		return nil
 	}
-	resp.Header.Add("Vary", "Accept-Encoding")
-	if !acceptsGzip(resp.Request.Header.Get("X-Accept-Encoding")) {
-		return nil
+	isHtml := strings.HasPrefix(contentType, "text/html")
+	if isHtml && frontendCdnUrl != "" {
+		rewriteLinkHeaderForCdn(resp.Header)
 	}
 	// the payloads of client-side navigation are streamed, send them on as they come
 	if strings.HasPrefix(contentType, "text/x-component") {
+		if frontendCdnUrl != "" {
+			resp.Body = newCdnStreamRewriter(resp.Body)
+			resp.Header.Del("Content-Length")
+			resp.ContentLength = -1
+		}
+		return nil
+	}
+	if !isCompressible(contentType) {
+		return nil
+	}
+	resp.Header.Add("Vary", "Accept-Encoding")
+	if !acceptsGzip(resp.Request.Header.Get("X-Accept-Encoding")) && !(isHtml && frontendCdnUrl != "") {
 		return nil
 	}
 	data, err := io.ReadAll(resp.Body)
@@ -128,6 +141,14 @@ func compressFrontendResponse(resp *http.Response) error {
 		return err
 	}
 	_ = resp.Body.Close()
+	if isHtml && frontendCdnUrl != "" {
+		data = rewriteHtmlForCdn(data)
+	}
+	if !acceptsGzip(resp.Request.Header.Get("X-Accept-Encoding")) {
+		resp.Header.Set("Content-Length", strconv.Itoa(len(data)))
+		resp.Body = io.NopCloser(bytes.NewReader(data))
+		return nil
+	}
 
 	if len(data) > 1024 {
 		var buf bytes.Buffer
