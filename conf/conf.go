@@ -16,6 +16,7 @@ package conf
 
 import (
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -27,7 +28,13 @@ import (
 // conf/app.conf. It is not in git, so pulling a new version never conflicts with it.
 const localConfigPath = "conf/app.local.conf"
 
+// sharedCodeDir is the code shared by the forums of a server. A thin site's folder only has conf/app.local.conf and its
+// own files (uploads, sessions), and reads app.conf and the built frontend from here.
+const sharedCodeDir = "../casnode"
+
 func init() {
+	loadSharedConfig()
+
 	if _, err := os.Stat(localConfigPath); err == nil {
 		local, err := config.NewConfig("ini", localConfigPath)
 		if err != nil {
@@ -54,6 +61,38 @@ func init() {
 			}
 		}
 	}
+}
+
+// loadSharedConfig reads the app.conf of the shared code when the site's folder has none (a thin site).
+func loadSharedConfig() {
+	if fileExists("conf/app.conf") {
+		return
+	}
+	path := filepath.Join(sharedCodeDir, "conf/app.conf")
+	if !fileExists(path) {
+		return
+	}
+	err := web.LoadAppConfig("ini", path)
+	if err != nil {
+		panic(err)
+	}
+}
+
+// GetSharedPath returns path, or the same path in the shared code when the site's folder doesn't have it.
+func GetSharedPath(path string) string {
+	if fileExists(path) || filepath.IsAbs(path) {
+		return path
+	}
+	res := filepath.Join(sharedCodeDir, path)
+	if fileExists(res) {
+		return res
+	}
+	return path
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 var defaults = map[string]string{

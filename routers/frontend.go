@@ -18,32 +18,41 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/beego/beego/v2/core/logs"
+	"github.com/casnode/casnode/conf"
 	"github.com/casnode/casnode/util"
 )
 
 // `yarn build` puts the Next.js server (output: "standalone") into a new directory under web/build on every build and
-// names it in web/build/server.txt (see web/scripts/prepare-standalone.mjs).
+// names it in web/build/server.txt (see web/scripts/prepare-standalone.mjs). A thin site uses the build of the shared code.
 const frontendBuildDir = "web/build"
 
-func getFrontendDir() string {
-	name, err := os.ReadFile(filepath.Join(frontendBuildDir, "server.txt"))
+func getFrontendDir(buildDir string) string {
+	name, err := os.ReadFile(filepath.Join(buildDir, "server.txt"))
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(frontendBuildDir, strings.TrimSpace(string(name)))
+	return filepath.Join(buildDir, strings.TrimSpace(string(name)))
 }
 
 // removeOldFrontends deletes the servers of earlier builds; the old server has just been stopped, so its directory
-// may stay locked for a moment.
+// may stay locked for a moment. The previous build is kept, as the thin sites run it until they are restarted too.
 func removeOldFrontends(current string) {
 	dirs, _ := filepath.Glob(filepath.Join(frontendBuildDir, "server-*"))
-	for _, dir := range dirs {
+	sort.Strings(dirs)
+	kept := 0
+	for i := len(dirs) - 1; i >= 0; i-- {
+		dir := dirs[i]
 		if dir == current || !isDir(dir) {
+			continue
+		}
+		if kept == 0 {
+			kept++
 			continue
 		}
 		var err error
@@ -63,9 +72,10 @@ func removeOldFrontends(current string) {
 // StartFrontend runs the Next.js server on port and restarts it when it exits; the pages are proxied to it.
 // Without a build (frontend work with `yarn dev`) it does nothing.
 func StartFrontend(port int, backendPort int) {
-	frontendDir := getFrontendDir()
+	buildDir := conf.GetSharedPath(frontendBuildDir)
+	frontendDir := getFrontendDir(buildDir)
 	if frontendDir == "" || !isFile(filepath.Join(frontendDir, "server.js")) {
-		logs.Warn("%s/server.txt does not name a built server, run `yarn build` in web/ (or `yarn dev` for frontend work)", frontendBuildDir)
+		logs.Warn("%s/server.txt does not name a built server, run `yarn build` in web/ (or `yarn dev` for frontend work)", buildDir)
 		return
 	}
 
@@ -74,7 +84,9 @@ func StartFrontend(port int, backendPort int) {
 	if err != nil {
 		logs.Warn("StopOldInstance(%d): %v", port, err)
 	}
-	go removeOldFrontends(frontendDir)
+	if buildDir == frontendBuildDir {
+		go removeOldFrontends(frontendDir)
+	}
 
 	go func() {
 		for {
