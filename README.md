@@ -142,6 +142,10 @@ by admins on `/admin/site_settings`.
 
 ## Deployment
 
+Download the archive for your platform from the [releases](https://github.com/casnode/casnode/releases), unpack it,
+put your settings in `conf/app.local.conf` and run `./casnode` (Node.js 20+ must be installed for the frontend server).
+Or build it yourself:
+
 ```bash
 cd web && yarn install && yarn build && cd ..
 go build -o casnode .
@@ -163,8 +167,15 @@ cd web && yarn lint && yarn build
 
 The backend is in the repository root (`object/` for the data model, `controllers/` for the API, `routers/` for routing,
 feeds and the proxy to Next.js); the frontend is in `web/src` (`app/` for pages, `components/` for the UI,
-`lib/locales/` for the translations). Pull requests are welcome; commit messages follow
-[Conventional Commits](https://www.conventionalcommits.org) so that releases are made automatically.
+`lib/locales/` for the translations). Pull requests are welcome; please write commit messages in the
+[Conventional Commits](https://www.conventionalcommits.org) style (`feat: ...`, `fix: ...`).
+
+Releases are made by hand: pushing a tag such as `v2.1.0` makes CI build the backend for Linux, macOS and Windows
+(amd64 and arm64), pack each with `conf/` and the built frontend, and publish them as a GitHub release.
+
+```bash
+git tag v2.1.0 && git push origin v2.1.0
+```
 
 ## Community
 

@@ -21,3 +21,6 @@ tmp/
 logs/
 .idea/
 .vscode/
+
+# release archives (.github/scripts/package.sh)
+/dist/
