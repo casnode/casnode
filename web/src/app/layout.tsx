@@ -21,7 +21,7 @@ export async function generateMetadata(): Promise<Metadata> {
     title: { default: title, template: `%s - ${title}` },
     description: site.settings.site_description,
     applicationName: title,
-    icons: site.settings.favicon_url ? { icon: site.settings.favicon_url } : undefined,
+    icons: { icon: site.settings.favicon_url || "/favicon.svg" },
     alternates: { types: { "application/rss+xml": `${origin}/latest.rss` } },
     openGraph: { siteName: title, type: "website" },
     formatDetection: { telephone: false },

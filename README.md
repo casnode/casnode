@@ -1,4 +1,9 @@
-<h1 align="center">Casnode</h1>
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo/casnode-logo_white.svg">
+    <img alt="Casnode" src="docs/logo/casnode-logo.svg" height="96">
+  </picture>
+</h1>
 
 <p align="center">
   <b>An open-source forum with the look and features of Discourse, built with Go and Next.js.</b><br>
