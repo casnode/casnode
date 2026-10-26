@@ -15,7 +15,9 @@ if (!fs.existsSync(path.join(standaloneDir, "server.js"))) {
   throw new Error(`${standaloneDir}/server.js does not exist`);
 }
 
-fs.cpSync(path.join(webDir, "public"), path.join(standaloneDir, "public"), { recursive: true });
+if (fs.existsSync(path.join(webDir, "public"))) {
+  fs.cpSync(path.join(webDir, "public"), path.join(standaloneDir, "public"), { recursive: true });
+}
 fs.cpSync(path.join(distDir, "static"), path.join(standaloneDir, ".next-build", "static"), { recursive: true });
 
 const serverName = `server-${Date.now()}`;
