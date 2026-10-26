@@ -1,62 +1,62 @@
-module github.com/casbin/casnode
+module github.com/casnode/casnode
 
-go 1.23.0
+go 1.25.0
 
 require (
-	github.com/astaxie/beego v1.12.3
-	github.com/casbin/google-groups-crawler v0.1.3
-	github.com/casdoor/casdoor-go-sdk v1.40.0
-	github.com/chromedp/chromedp v0.13.2
-	github.com/go-sql-driver/mysql v1.5.0
-	github.com/gomarkdown/markdown v0.0.0-20210408062403-ad838ccf8cdd
-	github.com/huichen/sego v0.0.0-20180617034105-3f3c8a8cfacc
-	github.com/issue9/assert v1.4.1
-	github.com/microcosm-cc/bluemonday v1.0.5
-	github.com/mileusna/crontab v1.0.1
-	github.com/mozillazg/go-slugify v0.2.0
-	github.com/sromku/go-gitter v0.0.0-20170828210750-70f7030a94a6
-	golang.org/x/net v0.16.0
-	xorm.io/core v0.7.2
-	xorm.io/xorm v0.8.1
+	github.com/beego/beego/v2 v2.3.8
+	github.com/go-sql-driver/mysql v1.8.1
+	github.com/lib/pq v1.10.5
+	github.com/microcosm-cc/bluemonday v1.0.27
+	github.com/microsoft/go-mssqldb v1.11.2
+	github.com/xorm-io/builder v0.3.13
+	github.com/xorm-io/xorm v1.1.6
+	github.com/yuin/goldmark v1.8.6
+	golang.org/x/image v0.45.0
+	golang.org/x/net v0.58.0
+	golang.org/x/text v0.41.0
+	modernc.org/sqlite v1.18.2
 )
 
 require (
-	github.com/adamzy/cedar-go v0.0.0-20170805034717-80a9c64b256d // indirect
+	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/aymerick/douceur v0.2.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/cespare/xxhash/v2 v2.1.1 // indirect
-	github.com/chris-ramon/douceur v0.2.0 // indirect
-	github.com/chromedp/cdproto v0.0.0-20250319231242-a755498943c8 // indirect
-	github.com/chromedp/sysutil v1.1.0 // indirect
-	github.com/elazarl/go-bindata-assetfs v1.0.1 // indirect
-	github.com/go-json-experiment/json v0.0.0-20250211171154-1ae217ad3535 // indirect
-	github.com/gobwas/httphead v0.1.0 // indirect
-	github.com/gobwas/pool v0.2.1 // indirect
-	github.com/gobwas/ws v1.4.0 // indirect
-	github.com/golang-jwt/jwt/v4 v4.5.0 // indirect
-	github.com/golang/protobuf v1.5.3 // indirect
-	github.com/gomodule/redigo v2.0.0+incompatible // indirect
-	github.com/gorilla/css v1.0.0 // indirect
+	github.com/cespare/xxhash/v2 v2.2.0 // indirect
+	github.com/golang-sql/civil v0.0.0-20220223132316-b832511892a9 // indirect
+	github.com/golang-sql/sqlexp v0.1.0 // indirect
+	github.com/golang/snappy v0.0.0-20180518054509-2e65f85255db // indirect
+	github.com/google/uuid v1.6.0 // indirect
+	github.com/gorilla/css v1.0.1 // indirect
 	github.com/hashicorp/golang-lru v0.5.4 // indirect
-	github.com/lib/pq v1.10.2 // indirect
-	github.com/matttproud/golang_protobuf_extensions v1.0.1 // indirect
-	github.com/mozillazg/go-unidecode v0.1.1 // indirect
-	github.com/mreiferson/go-httpclient v0.0.0-20201222173833-5e475fde3a4d // indirect
-	github.com/mrexodia/wray v0.0.0-20160318003008-78a2c1f284ff // indirect
-	github.com/prometheus/client_golang v1.11.0 // indirect
-	github.com/prometheus/client_model v0.2.0 // indirect
-	github.com/prometheus/common v0.26.0 // indirect
-	github.com/prometheus/procfs v0.6.0 // indirect
+	github.com/json-iterator/go v1.1.12 // indirect
+	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51 // indirect
+	github.com/kr/text v0.2.0 // indirect
+	github.com/mattn/go-isatty v0.0.16 // indirect
+	github.com/mitchellh/mapstructure v1.5.0 // indirect
+	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
+	github.com/modern-go/reflect2 v1.0.2 // indirect
+	github.com/prometheus/client_golang v1.19.0 // indirect
+	github.com/prometheus/client_model v0.5.0 // indirect
+	github.com/prometheus/common v0.48.0 // indirect
+	github.com/prometheus/procfs v0.12.0 // indirect
+	github.com/remyoudompheng/bigfft v0.0.0-20200410134404-eec4a21b6bb0 // indirect
 	github.com/shiena/ansicolor v0.0.0-20200904210342-c7312218db18 // indirect
-	github.com/smartystreets/goconvey v1.7.2 // indirect
-	github.com/stretchr/testify v1.7.0 // indirect
-	golang.org/x/crypto v0.14.0 // indirect
-	golang.org/x/oauth2 v0.13.0 // indirect
-	golang.org/x/sys v0.29.0 // indirect
-	golang.org/x/text v0.13.0 // indirect
-	google.golang.org/appengine v1.6.7 // indirect
-	google.golang.org/protobuf v1.31.0 // indirect
-	gopkg.in/yaml.v2 v2.4.0 // indirect
-	gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b // indirect
-	xorm.io/builder v0.3.6 // indirect
+	github.com/shopspring/decimal v1.4.0 // indirect
+	github.com/syndtr/goleveldb v1.0.0 // indirect
+	golang.org/x/crypto v0.55.0 // indirect
+	golang.org/x/mod v0.40.0 // indirect
+	golang.org/x/sync v0.22.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
+	golang.org/x/tools v0.49.0 // indirect
+	google.golang.org/protobuf v1.34.2 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
+	lukechampine.com/uint128 v1.1.1 // indirect
+	modernc.org/cc/v3 v3.37.0 // indirect
+	modernc.org/ccgo/v3 v3.16.9 // indirect
+	modernc.org/libc v1.18.0 // indirect
+	modernc.org/mathutil v1.5.0 // indirect
+	modernc.org/memory v1.3.0 // indirect
+	modernc.org/opt v0.1.1 // indirect
+	modernc.org/strutil v1.1.3 // indirect
+	modernc.org/token v1.0.1 // indirect
 )

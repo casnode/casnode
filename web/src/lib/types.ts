@@ -1,0 +1,249 @@
+// The shapes the backend (the Go code in the repository root) answers with.
+
+export interface User {
+  id: number;
+  username: string;
+  name: string;
+  avatar: string;
+  title: string;
+  admin: boolean;
+  moderator: boolean;
+  trustLevel: number;
+  email?: string;
+  bioRaw?: string;
+  bioCooked?: string;
+  location?: string;
+  website?: string;
+  locale?: string;
+  createdAt?: string;
+  lastSeenAt?: string;
+  lastPostedAt?: string;
+  suspendedTill?: string;
+  suspendReason?: string;
+  silencedTill?: string;
+  topicCount?: number;
+  postCount?: number;
+  likesGiven?: number;
+  likesReceived?: number;
+  daysVisited?: number;
+  postsReadCount?: number;
+  topicsEntered?: number;
+}
+
+export type UserMap = Record<string, User>;
+
+export interface Category {
+  id: number;
+  name: string;
+  slug: string;
+  description: string;
+  color: string;
+  textColor: string;
+  parentId: number;
+  position: number;
+  topicCount: number;
+  postCount: number;
+  readRestricted: boolean;
+  createRestricted: boolean;
+  topicTemplate: string;
+  topicsWeek: number;
+  topicsMonth: number;
+  subcategoryIds: number[] | null;
+}
+
+export interface Tag {
+  id: number;
+  name: string;
+  description?: string;
+  topicCount: number;
+}
+
+export interface Topic {
+  id: number;
+  title: string;
+  slug: string;
+  categoryId: number;
+  userId: number;
+  archetype: "regular" | "private_message";
+  excerpt?: string;
+  imageUrl?: string;
+  pinnedAt: string;
+  pinnedGlobally: boolean;
+  closed: boolean;
+  archived: boolean;
+  visible: boolean;
+  deleted: boolean;
+  views: number;
+  postsCount: number;
+  replyCount: number;
+  likeCount: number;
+  highestPostNumber: number;
+  participantCount: number;
+  wordCount: number;
+  lastPostUserId: number;
+  lastPostedAt: string;
+  bumpedAt: string;
+  createdAt: string;
+  posterIds: number[] | null;
+  tags: string[] | null;
+  lastReadPostNumber: number;
+  unreadPosts: number;
+  unseen: boolean;
+  notificationLevel: number;
+}
+
+export interface TopicList {
+  topics: Topic[];
+  users: UserMap;
+  more: boolean;
+  page: number;
+}
+
+export interface Post {
+  id: number;
+  topicId: number;
+  postNumber: number;
+  userId: number;
+  raw?: string;
+  cooked: string;
+  postType: number;
+  actionCode?: string;
+  replyToPostNumber: number;
+  replyToUserId: number;
+  replyCount: number;
+  likeCount: number;
+  version: number;
+  editReason?: string;
+  lastEditorId?: number;
+  deleted: boolean;
+  hidden: boolean;
+  createdAt: string;
+  updatedAt: string;
+  liked: boolean;
+  bookmarked: boolean;
+  flagged: boolean;
+  canEdit: boolean;
+  canDelete: boolean;
+  canRecover: boolean;
+}
+
+export interface TopicDetails {
+  createdBy: number;
+  lastPoster: number;
+  participants: { userId: number; postCount: number }[] | null;
+  allowedUserIds: number[] | null;
+  canEdit: boolean;
+  canReply: boolean;
+  canModerate: boolean;
+  canDelete: boolean;
+  canRecover: boolean;
+  canClose: boolean;
+}
+
+export interface TopicView {
+  topic: Topic;
+  category: Category | null;
+  posts: Post[];
+  stream: number[];
+  users: UserMap;
+  details: TopicDetails;
+  suggested: Topic[];
+  suggestedUsers: UserMap;
+  readingTime: number;
+}
+
+export interface SiteInfo {
+  settings: Record<string, string>;
+  casdoor: { serverUrl: string; clientId: string; organizationName: string; appName: string };
+  devSignin: boolean;
+  categories: Category[];
+  topTags: Tag[];
+  currentUser: User | null;
+  counts: Record<string, number>;
+  defaultLocale: string;
+}
+
+export interface Notification {
+  id: number;
+  userId: number;
+  notificationType: number;
+  topicId: number;
+  postNumber: number;
+  actingUserId: number;
+  topicTitle: string;
+  slug: string;
+  excerpt?: string;
+  read: boolean;
+  highPriority: boolean;
+  createdAt: string;
+}
+
+export interface UserPost {
+  post: Post;
+  topic: Topic | null;
+}
+
+export interface UserSummary {
+  topReplies: UserPost[];
+  topTopics: Topic[];
+  mostLikedBy: { userId: number; count: number }[];
+  mostLiked: { userId: number; count: number }[];
+  mostRepliedTo: { userId: number; count: number }[];
+  topCategories: { categoryId: number; topicCount: number; postCount: number }[];
+  bookmarkCount: number;
+  users: UserMap;
+}
+
+export interface SearchResult {
+  posts: { id: number; topicId: number; postNumber: number; userId: number; blurb: string; likeCount: number; createdAt: string }[];
+  topics: Record<string, Topic>;
+  users: UserMap;
+  categories: Category[];
+  tags: Tag[];
+  matchUsers: User[];
+  more: boolean;
+}
+
+export interface Reviewable {
+  id: number;
+  postId: number;
+  topicId: number;
+  status: number;
+  score: number;
+  scores: { userId: number; actionType: number; message?: string; createdAt: string }[];
+  createdAt: string;
+  post?: Post;
+  topic?: Topic;
+}
+
+export interface Upload {
+  id: number;
+  url: string;
+  originalFilename: string;
+  width: number;
+  height: number;
+  extension: string;
+}
+
+export interface ApiResponse<T, T2 = unknown> {
+  status: "ok" | "error";
+  msg: string;
+  data: T;
+  data2: T2;
+}
+
+export const NotificationLevel = { Muted: 0, Regular: 1, Tracking: 2, Watching: 3 } as const;
+
+export const NotificationType = {
+  Mentioned: 1,
+  Replied: 2,
+  Quoted: 3,
+  Edited: 4,
+  Liked: 5,
+  PrivateMessage: 6,
+  InvitedToPrivateMessage: 7,
+  Posted: 9,
+  AdminMessage: 20,
+} as const;
+
+export const PostAction = { Bookmark: 1, Like: 2, OffTopic: 3, Inappropriate: 4, NotifyModerators: 7, Spam: 8 } as const;

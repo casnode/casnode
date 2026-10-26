@@ -1,4 +1,4 @@
-// Copyright 2020 The casbin Authors. All Rights Reserved.
+// Copyright 2026 The Casnode Authors. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,790 +17,901 @@ package object
 import (
 	"fmt"
 	"strings"
-	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
-	"github.com/casbin/casnode/util"
-	"github.com/casdoor/casdoor-go-sdk/casdoorsdk"
-	"github.com/gomarkdown/markdown"
+	"github.com/xorm-io/builder"
+	"github.com/xorm-io/xorm"
 )
 
+const (
+	ArchetypeRegular        = "regular"
+	ArchetypePrivateMessage = "private_message"
+)
+
+const TopicPageSize = 30
+
 type Topic struct {
-	Id              int      `xorm:"int notnull pk autoincr" json:"id"`
-	Author          string   `xorm:"varchar(100) index" json:"author"`
-	NodeId          string   `xorm:"varchar(100) index" json:"nodeId"`
-	NodeName        string   `xorm:"varchar(100)" json:"nodeName"`
-	TabId           string   `xorm:"varchar(100) index" json:"tabId"`
-	Title           string   `xorm:"varchar(300) index" json:"title"`
-	CreatedTime     string   `xorm:"varchar(40)" json:"createdTime"`
-	Tags            []string `xorm:"varchar(200)" json:"tags"`
-	ReplyCount      int      `json:"replyCount"`
-	UpCount         int      `json:"upCount"`
-	DownCount       int      `json:"downCount"`
-	HitCount        int      `json:"hitCount"`
-	Hot             int      `xorm:"index" json:"hot"`
-	FavoriteCount   int      `json:"favoriteCount"`
-	SubscribeCount  int      `json:"subscribeCount"`
-	HomePageTopTime string   `xorm:"varchar(40) index(IDX_topic_htt_lrt)" json:"homePageTopTime"`
-	TabTopTime      string   `xorm:"varchar(40) index(IDX_topic_ttt_lrt)" json:"tabTopTime"`
-	NodeTopTime     string   `xorm:"varchar(40) index(IDX_topic_ntt_lrt)" json:"nodeTopTime"`
-	LastReplyUser   string   `xorm:"varchar(100)" json:"lastReplyUser"`
-	LastReplyTime   string   `xorm:"varchar(40) index(IDX_topic_htt_lrt) index(IDX_topic_ttt_lrt) index(IDX_topic_ntt_lrt)" json:"lastReplyTime"`
-	Deleted         bool     `xorm:"bool index" json:"-"`
-	EditorType      string   `xorm:"varchar(40)" json:"editorType"`
-	Content         string   `xorm:"mediumtext" json:"content"`
-	UrlPath         string   `xorm:"varchar(100)" json:"urlPath"`
-	IsHidden        bool     `xorm:"bool index" json:"isHidden"`
-	Ip              string   `xorm:"varchar(100)" json:"ip"`
-	State           string   `xorm:"varchar(100)" json:"state"`
-	GitterMessageId string   `xorm:"varchar(100)" json:"gitterMessageId"`
+	Id                int64     `xorm:"pk autoincr" json:"id"`
+	Title             string    `xorm:"varchar(300) notnull" json:"title"`
+	Slug              string    `xorm:"varchar(300)" json:"slug"`
+	CategoryId        int64     `xorm:"index" json:"categoryId"`
+	UserId            int64     `xorm:"index" json:"userId"`
+	Archetype         string    `xorm:"varchar(30) index" json:"archetype"`
+	Excerpt           string    `xorm:"varchar(1000)" json:"excerpt,omitempty"`
+	ImageUrl          string    `xorm:"varchar(500)" json:"imageUrl,omitempty"`
+	PinnedAt          time.Time `json:"pinnedAt"`
+	PinnedGlobally    bool      `json:"pinnedGlobally"`
+	Closed            bool      `json:"closed"`
+	Archived          bool      `json:"archived"`
+	Visible           bool      `json:"visible"`
+	Deleted           bool      `xorm:"index" json:"deleted"`
+	DeletedById       int64     `json:"deletedById,omitempty"`
+	Views             int       `json:"views"`
+	PostsCount        int       `json:"postsCount"`
+	ReplyCount        int       `json:"replyCount"`
+	LikeCount         int       `json:"likeCount"`
+	HighestPostNumber int       `json:"highestPostNumber"`
+	ParticipantCount  int       `json:"participantCount"`
+	WordCount         int       `json:"wordCount"`
+	LastPostUserId    int64     `json:"lastPostUserId"`
+	LastPostedAt      time.Time `json:"lastPostedAt"`
+	BumpedAt          time.Time `xorm:"index" json:"bumpedAt"`
+	CreatedAt         time.Time `xorm:"created index" json:"createdAt"`
+	UpdatedAt         time.Time `xorm:"updated" json:"updatedAt"`
+	PosterIds         []int64   `xorm:"varchar(500)" json:"posterIds"`
+	Tags              []string  `xorm:"varchar(1000)" json:"tags"`
+	HotScore          float64   `xorm:"index" json:"-"`
+
+	// what the signed-in user has done with the topic
+	LastReadPostNumber int  `xorm:"-" json:"lastReadPostNumber"`
+	UnreadPosts        int  `xorm:"-" json:"unreadPosts"`
+	Unseen             bool `xorm:"-" json:"unseen"`
+	NotificationLevel  int  `xorm:"-" json:"notificationLevel"`
 }
 
-func GetTopicCount() int {
-	count, err := adapter.Engine.Count(&Topic{})
-	if err != nil {
-		panic(err)
-	}
-
-	return int(count)
+func (t *Topic) IsPinned() bool {
+	return !t.PinnedAt.IsZero() && t.PinnedAt.Year() > 1
 }
 
-func GetTopicNum() int {
-	count, err := adapter.Engine.Where("deleted = ? and is_hidden = ?", 0, 0).Count(&Topic{})
-	if err != nil {
-		panic(err)
-	}
-
-	return int(count)
+func (t *Topic) IsPrivateMessage() bool {
+	return t.Archetype == ArchetypePrivateMessage
 }
 
-func GetCreatedTopicsNum(memberId string) int {
-	topic := new(Topic)
-	total, err := adapter.Engine.Where("author = ? and deleted = ? and is_hidden = ?", memberId, 0, 0).Count(topic)
-	if err != nil {
-		panic(err)
+func GetTopic(id int64) (*Topic, error) {
+	topic := &Topic{}
+	has, err := adapter.Engine.ID(id).Get(topic)
+	if err != nil || !has {
+		return nil, err
 	}
-
-	return int(total)
+	return topic, nil
 }
 
-func getAvataredTopics(topics []*Topic) []*TopicWithAvatar {
-	res := []*TopicWithAvatar{}
-	for _, topic := range topics {
-		topicWithAvatar := &TopicWithAvatar{
-			Topic:  *topic,
-			Avatar: getUserAvatar(topic.Author),
-		}
-		res = append(res, topicWithAvatar)
-	}
-	return res
-}
-
-func GetTopics(limit int, offset int) []*TopicWithAvatar {
-	var topics []*Topic
-	err := adapter.Engine.Table("topic").
-		Where("deleted = ?", 0).And("is_hidden = ?", 0).
-		Desc("home_page_top_time", "last_reply_time").
-		Cols("id, author, node_id, node_name, title, created_time, last_reply_user, last_Reply_time, reply_count, favorite_count, deleted, home_page_top_time, tab_top_time, node_top_time").
-		Limit(limit, offset).Find(&topics)
-	if err != nil {
-		panic(err)
-	}
-
-	return getAvataredTopics(topics)
-}
-
-func GetAllTopics() []*Topic {
-	var topics []*Topic
-	err := adapter.Engine.Find(&topics)
-	if err != nil {
-		panic(err)
-	}
-
-	return topics
-}
-
-func GetTopicsByTitleAndAuthor(title string, author string) []*Topic {
-	topics := []*Topic{}
-	err := adapter.Engine.Where("title = ?", title).And("author = ?", author).Find(&topics)
-	if err != nil {
-		panic(err)
-	}
-
-	return topics
-}
-
-// GetTopicsAdmin *sort: 1 means Asc, 2 means Desc, 0 means no effect.
-func GetTopicsAdmin(usernameSearchKw, titleSearchKw, contentSearchKw, showDeletedTopic, createdTimeSort, lastReplySort, usernameSort, replyCountSort, hotSort, favCountSort string, limit int, offset int) ([]*AdminTopicInfo, int) {
-	topics := []*Topic{}
-	db := adapter.Engine.Table("topic")
-
-	// created time sort
-	switch createdTimeSort {
-	case "1":
-		db = db.Asc("created_time")
-	case "2":
-		db = db.Desc("created_time")
-	}
-
-	// last reply time sort
-	switch lastReplySort {
-	case "1":
-		db = db.Asc("last_reply_time")
-	case "2":
-		db = db.Desc("last_reply_time")
-	}
-
-	// author sort
-	switch usernameSort {
-	case "1":
-		db = db.Asc("author")
-	case "2":
-		db = db.Desc("author")
-	}
-
-	// reply count sort
-	switch replyCountSort {
-	case "1":
-		db = db.Asc("reply_count")
-	case "2":
-		db = db.Desc("reply_count")
-	}
-
-	// hot sort
-	switch hotSort {
-	case "1":
-		db = db.Asc("hot")
-	case "2":
-		db = db.Desc("hot")
-	}
-
-	// favorite count sort
-	switch favCountSort {
-	case "1":
-		db = db.Asc("favorite_count")
-	case "2":
-		db = db.Desc("favorite_count")
-	}
-
-	if usernameSearchKw != "" {
-		unKw := util.SplitWords(usernameSearchKw)
-		for _, v := range unKw {
-			db.Or("author like ?", "%"+v+"%")
-		}
-	}
-
-	if titleSearchKw != "" {
-		tiKw := util.SplitWords(titleSearchKw)
-		for _, v := range tiKw {
-			db.Or("title like ?", "%"+v+"%")
-		}
-	}
-
-	if contentSearchKw != "" {
-		coKw := util.SplitWords(contentSearchKw)
-		for _, v := range coKw {
-			db.Or("content like ?", "%"+v+"%")
-		}
-	}
-
-	if showDeletedTopic == "0" {
-		db = db.Where("deleted = ?", 0)
-	}
-
-	num, err := db.Limit(limit, offset).FindAndCount(&topics, &Topic{})
-	if err != nil {
-		panic(err)
-	}
-
-	res := []*AdminTopicInfo{}
-	for _, v := range topics {
-		temp := AdminTopicInfo{
-			Topic:   *v,
-			Deleted: v.Deleted,
-		}
-		res = append(res, &temp)
-	}
-
-	return res, int(num)
-}
-
-func GetTopicWithAvatar(id int, user *casdoorsdk.User) *TopicWithAvatar {
-	topic := TopicWithAvatar{}
-
-	var wg sync.WaitGroup
-	wg.Add(2)
-
-	go func() {
-		defer wg.Done()
-		topicObj := GetTopic(id)
-		if topicObj != nil {
-			topic.Topic = *topicObj
-
-			topic.Avatar = getUserAvatar(topic.Author)
-
-			topic.Editable = GetTopicEditableStatus(user, topic.Author, topic.NodeId, topic.CreatedTime)
-		}
-	}()
-	go func() {
-		defer wg.Done()
-		name := ""
-		if user != nil {
-			name = GetUserName(user)
-		}
-
-		topic.ThanksStatus = GetThanksStatus(name, id, 4)
-	}()
-
-	wg.Wait()
-
-	if topic.Author == "" {
-		return nil
-	}
-	return &topic
-}
-
-func GetTopic(id int) *Topic {
-	topic := Topic{Id: id}
-	existed, err := adapter.Engine.Get(&topic)
-	if err != nil {
-		panic(err)
-	}
-
-	if existed {
-		return &topic
-	} else {
-		return nil
-	}
-}
-
-func GetTopicByUrlPathAndTitle(urlPath, title, nodeId string) *Topic {
-	topic := Topic{UrlPath: urlPath, Title: title, NodeId: nodeId}
-	existed, err := adapter.Engine.Get(&topic)
-	if err != nil {
-		panic(err)
-	}
-
-	if !existed {
-		return nil
-	}
-
-	return &topic
-}
-
-func GetTopicBasicInfo(id int) *Topic {
-	topic := Topic{Id: id}
-	existed, err := adapter.Engine.Id(id).Omit("content").Get(&topic)
-	if err != nil {
-		panic(err)
-	}
-
-	if existed {
-		return &topic
-	} else {
-		return nil
-	}
-}
-
-func GetTopicAdmin(id int) *AdminTopicInfo {
-	topic := Topic{Id: id}
-	existed, err := adapter.Engine.Get(&topic)
-	if err != nil {
-		panic(err)
-	}
-
-	if existed {
-		return &AdminTopicInfo{
-			Topic:   topic,
-			Deleted: topic.Deleted,
-		}
-	} else {
-		return nil
-	}
-}
-
-func GetTopicTitle(id int) string {
-	topic := Topic{Id: id}
-	existed, err := adapter.Engine.Cols("title").Get(&topic)
-	if err != nil {
-		panic(err)
-	}
-
-	if existed {
-		return topic.Title
-	} else {
-		return ""
-	}
-}
-
-func GetTopicAuthor(id int) *casdoorsdk.User {
-	topic := Topic{Id: id}
-	existed, err := adapter.Engine.Cols("author").Get(&topic)
-	if err != nil {
-		panic(err)
-	}
-
-	if !existed {
-		return nil
-	}
-
-	return GetUser(topic.Author)
-}
-
-func GetTopicNodeId(id int) string {
-	topic := Topic{Id: id}
-	existed, err := adapter.Engine.Cols("node_id").Get(&topic)
-	if err != nil {
-		panic(err)
-	}
-
-	if existed {
-		return topic.NodeId
-	} else {
-		return ""
-	}
-}
-
-func GetTopicsByNode(nodeId string, limit int, offset int) []*NodeTopic {
-	topics := []*NodeTopic{}
-	err := adapter.Engine.Table("topic").
-		Where("node_id = ?", nodeId).And("deleted = ?", 0).
-		Desc("node_top_time", "last_reply_time").
-		Cols("id, author, node_id, node_name, title, created_time, last_reply_user, last_Reply_time, reply_count, favorite_count, deleted, home_page_top_time, tab_top_time, node_top_time").
-		Limit(limit, offset).Find(&topics)
-	if err != nil {
-		panic(err)
-	}
-
-	for _, topic := range topics {
-		topic.Avatar = getUserAvatar(topic.Author)
-
-		topic.ContentLength = len(topic.Content)
-		topic.Content = ""
-	}
-
-	return topics
-}
-
-func GetTopicsByTag(tagId string, limit int, offset int) []*NodeTopic {
-	topics := []*NodeTopic{}
-	tag := fmt.Sprintf("%%%q%%", tagId)
-	err := adapter.Engine.Table("topic").
-		Where("deleted = ?", 0).And("tags LIKE ?", tag).
-		Desc("node_top_time", "last_reply_time").
-		Cols("id, author, node_id, node_name, title, created_time, last_reply_user, last_Reply_time, reply_count, favorite_count, deleted, home_page_top_time, tab_top_time, node_top_time").
-		Limit(limit, offset).Find(&topics)
-	if err != nil {
-		panic(err)
-	}
-
-	for _, topic := range topics {
-		topic.Avatar = getUserAvatar(topic.Author)
-
-		topic.ContentLength = len(topic.Content)
-		topic.Content = ""
-	}
-
-	return topics
-}
-
-func UpdateTopic(id int, topic *Topic) bool {
-	if GetTopic(id) == nil {
-		return false
-	}
-	topic.Content = FilterUnsafeHTML(topic.Content)
-	_, err := adapter.Engine.Id(id).AllCols().Update(topic)
-	if err != nil {
-		panic(err)
-	}
-
-	// return affected != 0
-	return true
-}
-
-func updateTopicSimple(id int, topic *Topic) bool {
-	affected, err := adapter.Engine.Id(id).AllCols().Update(topic)
-	if err != nil {
-		panic(err)
-	}
-
-	return affected != 0
-}
-
-func UpdateTopicWithLimitCols(id int, topic *Topic) bool {
-	if GetTopic(id) == nil {
-		return false
-	}
-	topic.Content = FilterUnsafeHTML(topic.Content)
-	_, err := adapter.Engine.Id(id).Update(topic)
-	if err != nil {
-		panic(err)
-	}
-
-	// return affected != 0
-	return true
-}
-
-// AddTopic return add topic result and topic id
-func AddTopic(topic *Topic) (bool, int) {
-	topic.Content = FilterUnsafeHTML(topic.Content)
-	affected, err := adapter.Engine.Insert(topic)
-	if err != nil {
-		panic(err)
-	}
-
-	return affected != 0, topic.Id
-}
-
-func AddTopics(topics []*Topic) bool {
-	affected, err := adapter.Engine.Insert(topics)
-	if err != nil {
-		panic(err)
-	}
-
-	return affected != 0
-}
-
-func AddTopicsInBatch(topics []*Topic) bool {
-	batchSize := 1000
-
-	if len(topics) == 0 {
-		return false
-	}
-
-	affected := false
-	for i := 0; i < (len(topics)-1)/batchSize+1; i++ {
-		start := i * batchSize
-		end := (i + 1) * batchSize
-		if end > len(topics) {
-			end = len(topics)
-		}
-
-		tmp := topics[start:end]
-		fmt.Printf("Add topics: [%d - %d].\n", start, end)
-		if AddTopics(tmp) {
-			affected = true
-		}
-	}
-
-	return affected
-}
-
-func DeleteTopicHard(id int) bool {
-	affected, err := adapter.Engine.Id(id).Delete(&Topic{})
-	if err != nil {
-		panic(err)
-	}
-
-	return affected != 0
-}
-
-func DeleteTopic(id int) bool {
-	t := GetTopic(id)
-	if strings.HasPrefix(t.Content, "URL: ") {
-		return DeleteTopicHard(id)
-	}
-
-	topic := new(Topic)
-	topic.Deleted = true
-	affected, err := adapter.Engine.Id(id).Cols("deleted").Update(topic)
-	if err != nil {
-		panic(err)
-	}
-
-	return affected != 0
-}
-
-/*
-func GetTopicId() int {
-	topic := new(Topic)
-	_, err := adapter.Engine.Desc("created_time").Omit("content").Limit(1).Get(topic)
-	if err != nil {
-		panic(err)
-	}
-
-	res := util.ParseInt(topic.Id) + 1
-
-	return res
-}
-*/
-
-func GetAllCreatedTopics(author string, tab string, limit int, offset int) []*Topic {
-	topics := []*Topic{}
-	err := adapter.Engine.Desc("created_time").Where("author = ?", author).And("deleted = ?", 0).Omit("content").Limit(limit, offset).Find(&topics)
-	if err != nil {
-		panic(err)
-	}
-
-	return topics
-}
-
-func AddTopicHitCount(topicId int) bool {
-	affected, err := adapter.Engine.ID(topicId).Incr("hit_count", 1).Update(Topic{})
-	if err != nil {
-		panic(err)
-	}
-
-	return affected != 0
-}
-
-func ChangeTopicFavoriteCount(topicId int, num int) bool {
-	affected, err := adapter.Engine.ID(topicId).Incr("favorite_count", num).Update(Topic{})
-	if err != nil {
-		panic(err)
-	}
-
-	return affected != 0
-}
-
-func ChangeTopicSubscribeCount(topicId int, num int) bool {
-	affected, err := adapter.Engine.ID(topicId).Incr("subscribe_count", num).Update(Topic{})
-	if err != nil {
-		panic(err)
-	}
-
-	return affected != 0
-}
-
-func ChangeTopicReplyCount(topicId int, num int) bool {
-	affected, err := adapter.Engine.ID(topicId).Incr("reply_count", num).Update(Topic{})
-	if err != nil {
-		panic(err)
-	}
-
-	return affected != 0
-}
-
-func ChangeTopicLastReplyUser(topicId int, memberId string, updateTime string) bool {
-	topic := GetTopic(topicId)
+// CanSee tells whether the user may read the topic: deleted and unlisted ones only for staff, messages only for
+// their participants, and the category's restriction.
+func CanSeeTopic(user *User, topic *Topic) (bool, error) {
 	if topic == nil {
-		return false
+		return false, nil
 	}
-
-	topic.LastReplyUser = memberId
-	topic.LastReplyTime = updateTime
-	if len(memberId) == 0 {
-		topic.LastReplyTime = ""
+	if (topic.Deleted || !topic.Visible) && !user.IsStaff() {
+		return false, nil
 	}
-	affected, err := adapter.Engine.Id(topicId).Cols("last_reply_user, last_reply_time").Update(topic)
-	if err != nil {
-		panic(err)
-	}
-
-	return affected != 0
-}
-
-func GetTopicsWithTab(tab string, limit, offset int) []*TopicWithAvatar {
-	if tab == "all" {
-		topics := GetTopics(limit, offset)
-		return topics
-	} else {
-		topics := []*Topic{}
-		err := adapter.Engine.Table("topic").
-			Where("tab_id = ?", tab).And("deleted = ?", 0).And("is_hidden = ?", 0).
-			Desc("tab_top_time", "last_reply_time").
-			Cols("id, author, node_id, node_name, title, created_time, last_reply_user, last_Reply_time, reply_count, favorite_count, deleted, home_page_top_time, tab_top_time, node_top_time").
-			Limit(limit, offset).Find(&topics)
-		if err != nil {
-			panic(err)
+	if topic.IsPrivateMessage() {
+		if user == nil {
+			return false, nil
 		}
-
-		return getAvataredTopics(topics)
+		if user.Admin {
+			return true, nil
+		}
+		return IsTopicAllowedUser(topic.Id, user.Id)
 	}
+	category, err := GetCategory(topic.CategoryId)
+	if err != nil {
+		return false, err
+	}
+	return category == nil || category.CanSee(user), nil
 }
 
-func UpdateTopicHotInfo(topicId string, hot int) bool {
-	topic := new(Topic)
-
-	topic.Hot = hot
-	affected, err := adapter.Engine.Id(topicId).Cols("hot").Update(topic)
-	if err != nil {
-		panic(err)
-	}
-
-	return affected != 0
+type TopicListQuery struct {
+	Filter     string
+	CategoryId int64
+	NoSubs     bool
+	Tag        string
+	Period     string
+	Order      string
+	Ascending  bool
+	Page       int
+	UserId     int64 // topics of this user (created / posted / messages)
+	PageSize   int
 }
 
-func GetHotTopic(limit int) []*TopicWithAvatar {
-	var topics []*Topic
-	err := adapter.Engine.Table("topic").
-		Where("deleted = ? ", 0).
-		Desc("hot").
-		Cols("id, author, node_id, node_name, title, created_time, last_reply_user, last_Reply_time, reply_count, favorite_count, deleted, home_page_top_time, tab_top_time, node_top_time").
-		Limit(limit).Find(&topics)
-	if err != nil {
-		panic(err)
-	}
-
-	return getAvataredTopics(topics)
+type TopicList struct {
+	Topics []*Topic         `json:"topics"`
+	Users  map[int64]*User  `json:"users"`
+	More   bool             `json:"more"`
+	Page   int              `json:"page"`
+	Extra  map[string]int64 `json:"extra,omitempty"`
 }
 
-// GetSortedTopics *sort: 1 means Asc, 2 means Desc, 0 means no effect.
-func GetSortedTopics(lastReplySort, hotSort, favCountSort, createdTimeSort string, limit int, offset int) []*TopicWithAvatar {
-	var topics []*Topic
-	db := adapter.Engine.Table("topic")
-	// last reply time sort
-	switch lastReplySort {
-	case "1":
-		db = db.Asc("last_reply_time")
-	case "2":
-		db = db.Desc("last_reply_time")
-	}
-
-	// hot sort
-	switch hotSort {
-	case "1":
-		db = db.Asc("hot")
-	case "2":
-		db = db.Desc("hot")
-	}
-
-	// favorite count sort
-	switch favCountSort {
-	case "1":
-		db = db.Asc("favorite_count")
-	case "2":
-		db = db.Desc("favorite_count")
-	}
-
-	// created time sort
-	switch createdTimeSort {
-	case "1":
-		db = db.Desc("created_time")
-	case "2":
-		db = db.Desc("created_time")
-	}
-
-	err := db.
-		Where("deleted = ? and is_hidden <> ?", 0, 1).
-		Limit(limit, offset).Find(&topics)
-	if err != nil {
-		panic(err)
-	}
-
-	return getAvataredTopics(topics)
+var topicOrders = map[string]string{
+	"activity": "topic.bumped_at",
+	"created":  "topic.created_at",
+	"views":    "topic.views",
+	"posts":    "topic.posts_count",
+	"likes":    "topic.like_count",
 }
 
-func GetTopicEditableStatus(user *casdoorsdk.User, author, nodeId, createdTime string) bool {
-	if CheckIsAdmin(user) || CheckNodeModerator(user, nodeId) {
-		return true
-	}
-
-	if GetUserName(user) != author {
-		return false
-	}
-
-	t, err := time.Parse("2006-01-02T15:04:05+08:00", createdTime)
-	if err != nil {
-		return false
-	}
-	h, _ := time.ParseDuration("-1h")
-	t = t.Add(8 * h)
-
+func PeriodStart(period string) time.Time {
 	now := time.Now()
-	if now.Sub(t).Minutes() > TopicEditableTime {
-		return false
+	switch period {
+	case "daily":
+		return now.AddDate(0, 0, -1)
+	case "weekly":
+		return now.AddDate(0, 0, -7)
+	case "monthly":
+		return now.AddDate(0, -1, 0)
+	case "quarterly":
+		return now.AddDate(0, -3, 0)
+	case "yearly":
+		return now.AddDate(-1, 0, 0)
+	default:
+		return time.Time{}
 	}
-
-	return true
 }
 
-// ChangeTopicTopExpiredTime changes topic's top expired time.
-// topType: tab, node or homePage.
-func ChangeTopicTopExpiredTime(id int, date, topType string) bool {
-	topic := GetTopic(id)
-	if topic == nil {
-		return false
+func newTopicSince(user *User) time.Time {
+	days := GetSiteSettingInt("new_topic_duration_days")
+	if days <= 0 {
+		days = 2
 	}
-
-	switch topType {
-	case "tab":
-		topic.TabTopTime = date
-	case "node":
-		topic.NodeTopTime = date
-	case "homePage":
-		topic.HomePageTopTime = date
+	since := time.Now().AddDate(0, 0, -days)
+	if user != nil && user.CreatedAt.After(since) {
+		// a new user's "new" starts a little before they joined, like Discourse
+		since = user.CreatedAt.AddDate(0, 0, -2)
 	}
-
-	affected, err := adapter.Engine.Id(id).Cols("tab_top_time, node_top_time, home_page_top_time").Update(topic)
-	if err != nil {
-		panic(err)
-	}
-
-	return affected != 0
+	return since
 }
 
-// ExpireTopTopic searches and expires expired top topic.
-func ExpireTopTopic() int {
-	topics := []*Topic{}
-	err := adapter.Engine.Where("tab_top_time != ?", "").Or("node_top_time != ?", "").Or("home_page_top_time != ?", "").Cols("id, tab_top_time, node_top_time, home_page_top_time").Find(&topics)
-	if err != nil {
-		panic(err)
+func applyCategoryFilter(session *xorm.Session, query *TopicListQuery) (*xorm.Session, error) {
+	if query.CategoryId == 0 {
+		return session, nil
 	}
-
-	var num int
-	date := util.GetCurrentTime()
-	for _, v := range topics {
-		if v.TabTopTime <= date {
-			res := ChangeTopicTopExpiredTime(v.Id, "", "tab")
-			if res {
-				num++
-			}
+	ids := []int64{query.CategoryId}
+	if !query.NoSubs {
+		category, err := GetCategory(query.CategoryId)
+		if err != nil {
+			return nil, err
 		}
-		if v.NodeTopTime <= date {
-			res := ChangeTopicTopExpiredTime(v.Id, "", "node")
-			if res {
-				num++
-			}
-		}
-		if v.HomePageTopTime <= date {
-			res := ChangeTopicTopExpiredTime(v.Id, "", "homePage")
-			if res {
-				num++
-			}
+		if category != nil {
+			ids = append(ids, category.SubIds...)
 		}
 	}
-
-	return num
+	return session.In("topic.category_id", ids), nil
 }
 
-func (t Topic) GetAllRepliesOfTopic() []string {
-	var ret []string
-	var replies []Reply
-	err := adapter.Engine.Where("topic_id = ? and deleted = 0", t.Id).Find(&replies)
-	if err != nil {
-		panic(err)
+func newTopicListSession(user *User, query *TopicListQuery) (*xorm.Session, error) {
+	session := adapter.Engine.Table("topic").Where("topic.deleted = ?", false)
+	if !user.IsStaff() {
+		session = session.And("topic.visible = ?", true)
 	}
-	var content string
-	for _, reply := range replies {
-		if reply.EditorType == "markdown" {
-			content = string(markdown.ToHTML([]byte(reply.Content), nil, nil))
+
+	if strings.HasPrefix(query.Filter, "private_messages") {
+		if user == nil {
+			return nil, fmt.Errorf("Please sign in first")
+		}
+		userId := user.Id
+		if query.UserId != 0 {
+			userId = query.UserId
+		}
+		session = session.And("topic.archetype = ?", ArchetypePrivateMessage)
+		if query.Filter == "private_messages_sent" {
+			session = session.And("topic.user_id = ?", userId)
 		} else {
-			content = reply.Content
+			session = session.And(builder.In("topic.id", builder.Select("topic_id").From("topic_allowed_user").Where(builder.Eq{"user_id": userId})))
 		}
-		ret = append(ret, content)
+		return session, nil
 	}
-	return ret
+
+	session = session.And("topic.archetype = ?", ArchetypeRegular)
+	hidden := GetHiddenCategoryIds(user)
+	if len(hidden) > 0 {
+		session = session.NotIn("topic.category_id", hidden)
+	}
+	session, err := applyCategoryFilter(session, query)
+	if err != nil {
+		return nil, err
+	}
+
+	if query.Tag != "" {
+		tag, err := GetTag(query.Tag)
+		if err != nil {
+			return nil, err
+		}
+		tagId := int64(-1)
+		if tag != nil {
+			tagId = tag.Id
+		}
+		session = session.And(builder.In("topic.id", builder.Select("topic_id").From("topic_tag").Where(builder.Eq{"tag_id": tagId})))
+	}
+
+	switch query.Filter {
+	case "new":
+		if user == nil {
+			return nil, fmt.Errorf("Please sign in first")
+		}
+		session = session.Join("LEFT", "topic_user", "topic_user.topic_id = topic.id AND topic_user.user_id = ?", user.Id).
+			And("topic_user.id IS NULL").And("topic.created_at > ?", dbTime(newTopicSince(user)))
+	case "unread":
+		if user == nil {
+			return nil, fmt.Errorf("Please sign in first")
+		}
+		session = session.Join("INNER", "topic_user", "topic_user.topic_id = topic.id AND topic_user.user_id = ?", user.Id).
+			And("topic_user.notification_level >= ?", NotificationLevelTracking).
+			And("topic.highest_post_number > topic_user.last_read_post_number")
+	case "posted":
+		if user == nil {
+			return nil, fmt.Errorf("Please sign in first")
+		}
+		session = session.Join("INNER", "topic_user", "topic_user.topic_id = topic.id AND topic_user.user_id = ?", user.Id).
+			And("topic_user.posted = ?", true)
+	case "created":
+		session = session.And("topic.user_id = ?", query.UserId)
+	case "top":
+		start := PeriodStart(query.Period)
+		if !start.IsZero() {
+			session = session.And("topic.created_at > ?", dbTime(start))
+		}
+	case "hot":
+		session = session.And("topic.bumped_at > ?", dbTime(time.Now().AddDate(0, 0, -30)))
+	}
+	return session, nil
 }
 
-func SearchTopics(keyword string) []*TopicWithAvatar {
-	topics := []*Topic{}
-	sqlKeyword := fmt.Sprintf("%%%s%%", keyword)
-
-	err := adapter.Engine.Where("deleted = 0").Where("title like ? or content like ?", sqlKeyword, sqlKeyword).Find(&topics)
-	if err != nil {
-		panic(err)
+func GetTopicList(user *User, query *TopicListQuery) (*TopicList, error) {
+	pageSize := query.PageSize
+	if pageSize <= 0 {
+		pageSize = TopicPageSize
 	}
 
-	topics2 := []*Topic{}
+	session, err := newTopicListSession(user, query)
+	if err != nil {
+		return nil, err
+	}
+	session = session.Select("topic.*")
+
+	// pinned topics go first on the first page of "latest": the globally pinned ones everywhere, the others in their category
+	pinned := []*Topic{}
+	showPinned := query.Filter == "latest" && query.Order == "" && query.Tag == ""
+	if showPinned {
+		session = session.And(builder.Or(builder.IsNull{"topic.pinned_at"}, builder.Expr("topic.pinned_at < ?", "1900-01-01")))
+		if query.Page == 0 {
+			pinnedSession, err := newTopicListSession(user, query)
+			if err != nil {
+				return nil, err
+			}
+			pinnedSession = pinnedSession.Select("topic.*").And("topic.pinned_at > ?", "1900-01-01")
+			if query.CategoryId == 0 {
+				pinnedSession = pinnedSession.And("topic.pinned_globally = ?", true)
+			}
+			err = pinnedSession.Desc("topic.pinned_at").Find(&pinned)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	switch query.Filter {
+	case "top":
+		session = session.Desc("topic.like_count", "topic.posts_count", "topic.views")
+	case "hot":
+		session = session.Desc("topic.hot_score", "topic.bumped_at")
+	default:
+		column, ok := topicOrders[query.Order]
+		if !ok {
+			column = "topic.bumped_at"
+		}
+		if query.Ascending {
+			session = session.Asc(column)
+		} else {
+			session = session.Desc(column)
+		}
+	}
+	session = session.Desc("topic.id")
+
+	topics := []*Topic{}
+	err = session.Limit(pageSize+1, query.Page*pageSize).Find(&topics)
+	if err != nil {
+		return nil, err
+	}
+
+	more := len(topics) > pageSize
+	if more {
+		topics = topics[:pageSize]
+	}
+	if len(pinned) > 0 {
+		topics = append(pinned, topics...)
+	}
+
+	err = FillTopicUserState(user, topics)
+	if err != nil {
+		return nil, err
+	}
+	users, err := GetTopicListUsers(topics)
+	if err != nil {
+		return nil, err
+	}
+	return &TopicList{Topics: topics, Users: users, More: more, Page: query.Page}, nil
+}
+
+func GetTopicListUsers(topics []*Topic) (map[int64]*User, error) {
+	ids := []int64{}
 	for _, topic := range topics {
-		content := RemoveHtmlTags(topic.Content)
-		if !strings.Contains(content, keyword) && !strings.Contains(topic.Title, keyword) {
+		ids = append(ids, topic.UserId, topic.LastPostUserId)
+		ids = append(ids, topic.PosterIds...)
+	}
+	return GetUserMap(ids)
+}
+
+// FillTopicUserState sets what the user has read of each topic, and whether it is new to them.
+func FillTopicUserState(user *User, topics []*Topic) error {
+	if user == nil || len(topics) == 0 {
+		return nil
+	}
+	ids := []int64{}
+	for _, topic := range topics {
+		ids = append(ids, topic.Id)
+	}
+	states := []*TopicUser{}
+	err := adapter.Engine.Where("user_id = ?", user.Id).In("topic_id", ids).Find(&states)
+	if err != nil {
+		return err
+	}
+	stateMap := map[int64]*TopicUser{}
+	for _, state := range states {
+		stateMap[state.TopicId] = state
+	}
+
+	since := newTopicSince(user)
+	for _, topic := range topics {
+		state := stateMap[topic.Id]
+		if state == nil {
+			topic.Unseen = topic.CreatedAt.After(since)
+			topic.NotificationLevel = NotificationLevelRegular
 			continue
 		}
+		topic.LastReadPostNumber = state.LastReadPostNumber
+		topic.NotificationLevel = state.NotificationLevel
+		if state.NotificationLevel >= NotificationLevelTracking && topic.HighestPostNumber > state.LastReadPostNumber {
+			topic.UnreadPosts = topic.HighestPostNumber - state.LastReadPostNumber
+		}
+	}
+	return nil
+}
 
-		topics2 = append(topics2, topic)
+// CountNewAndUnread is for the "New (3)" and "Unread (2)" navigation items.
+func CountNewAndUnread(user *User) (int64, int64, error) {
+	if user == nil {
+		return 0, 0, nil
+	}
+	newSession, err := newTopicListSession(user, &TopicListQuery{Filter: "new"})
+	if err != nil {
+		return 0, 0, err
+	}
+	newCount, err := newSession.Count()
+	if err != nil {
+		return 0, 0, err
+	}
+	unreadSession, err := newTopicListSession(user, &TopicListQuery{Filter: "unread"})
+	if err != nil {
+		return 0, 0, err
+	}
+	unreadCount, err := unreadSession.Count()
+	return newCount, unreadCount, err
+}
+
+type NewTopic struct {
+	Title      string   `json:"title"`
+	Raw        string   `json:"raw"`
+	CategoryId int64    `json:"categoryId"`
+	Tags       []string `json:"tags"`
+	Archetype  string   `json:"archetype"`
+	Recipients []string `json:"recipients"`
+}
+
+func validateTitle(title string) (string, error) {
+	title = strings.Join(strings.Fields(title), " ")
+	length := utf8.RuneCountInString(title)
+	if min := GetSiteSettingInt("min_topic_title_length"); length < min {
+		return "", fmt.Errorf("Title must be at least %d characters", min)
+	}
+	if max := GetSiteSettingInt("max_topic_title_length"); max > 0 && length > max {
+		return "", fmt.Errorf("Title can't be more than %d characters", max)
+	}
+	return title, nil
+}
+
+func validateRaw(raw string, minSetting string) error {
+	length := utf8.RuneCountInString(strings.TrimSpace(raw))
+	if min := GetSiteSettingInt(minSetting); length < min {
+		return fmt.Errorf("Body must be at least %d characters", min)
+	}
+	if max := GetSiteSettingInt("max_post_length"); max > 0 && length > max {
+		return fmt.Errorf("Body can't be more than %d characters", max)
+	}
+	return nil
+}
+
+func checkCanPost(user *User) error {
+	if user == nil {
+		return fmt.Errorf("Please sign in first")
+	}
+	if user.IsSuspended() {
+		return fmt.Errorf("Your account is suspended")
+	}
+	if user.IsSilenced() {
+		return fmt.Errorf("Your account is silenced and can't post")
+	}
+	return nil
+}
+
+func CreateTopic(user *User, input *NewTopic) (*Topic, error) {
+	err := checkCanPost(user)
+	if err != nil {
+		return nil, err
+	}
+	title, err := validateTitle(input.Title)
+	if err != nil {
+		return nil, err
 	}
 
-	return getAvataredTopics(topics2)
+	topic := &Topic{
+		Title:     title,
+		Slug:      Slugify(title),
+		UserId:    user.Id,
+		Archetype: ArchetypeRegular,
+		Visible:   true,
+	}
+
+	recipients := []*User{}
+	if input.Archetype == ArchetypePrivateMessage {
+		if !GetSiteSettingBool("enable_personal_messages") && !user.IsStaff() {
+			return nil, fmt.Errorf("Personal messages are turned off")
+		}
+		err = validateRaw(input.Raw, "min_personal_message_post_length")
+		if err != nil {
+			return nil, err
+		}
+		recipients, err = GetUsersByUsernames(input.Recipients)
+		if err != nil {
+			return nil, err
+		}
+		if len(recipients) == 0 {
+			return nil, fmt.Errorf("Add at least one recipient")
+		}
+		topic.Archetype = ArchetypePrivateMessage
+	} else {
+		err = validateRaw(input.Raw, "min_first_post_length")
+		if err != nil {
+			return nil, err
+		}
+		categoryId := input.CategoryId
+		if categoryId == 0 {
+			if !GetSiteSettingBool("allow_uncategorized_topics") && !user.IsStaff() {
+				return nil, fmt.Errorf("Choose a category")
+			}
+			categoryId = GetUncategorizedId()
+		}
+		category, err := GetCategory(categoryId)
+		if err != nil {
+			return nil, err
+		}
+		if category == nil {
+			return nil, fmt.Errorf("The category does not exist")
+		}
+		if !category.CanCreateTopic(user) {
+			return nil, fmt.Errorf("You can't create topics in %s", category.Name)
+		}
+		topic.CategoryId = category.Id
+		topic.Tags, err = normalizeTags(user, input.Tags)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	postLock.Lock()
+	defer postLock.Unlock()
+
+	now := time.Now()
+	topic.BumpedAt = now
+	topic.LastPostedAt = now
+	topic.LastPostUserId = user.Id
+	topic.PostsCount = 1
+	topic.HighestPostNumber = 1
+	topic.ParticipantCount = 1
+	topic.PosterIds = []int64{user.Id}
+	topic.WordCount = countWords(input.Raw)
+	cooked := CookMarkdown(input.Raw)
+	topic.Excerpt = cooked.Excerpt
+	topic.ImageUrl = cooked.ImageUrl
+	_, err = adapter.Engine.Insert(topic)
+	if err != nil {
+		return nil, err
+	}
+
+	post := &Post{
+		TopicId:    topic.Id,
+		PostNumber: 1,
+		UserId:     user.Id,
+		Raw:        input.Raw,
+		Cooked:     cooked.Html,
+		PostType:   PostTypeRegular,
+		Version:    1,
+	}
+	_, err = adapter.Engine.Insert(post)
+	if err != nil {
+		return nil, err
+	}
+
+	if topic.IsPrivateMessage() {
+		allowed := []int64{user.Id}
+		for _, recipient := range recipients {
+			allowed = append(allowed, recipient.Id)
+		}
+		for _, id := range uniqueIds(allowed) {
+			_, err = adapter.Engine.Insert(&TopicAllowedUser{TopicId: topic.Id, UserId: id})
+			if err != nil {
+				return nil, err
+			}
+		}
+	} else {
+		err = setTopicTags(topic.Id, topic.Tags)
+		if err != nil {
+			return nil, err
+		}
+		incrCategory(topic.CategoryId, "topic_count", 1)
+		incrCategory(topic.CategoryId, "post_count", 1)
+	}
+
+	incrUser(user.Id, "topic_count", 1)
+	incrUser(user.Id, "post_count", 1)
+	_, _ = adapter.Engine.ID(user.Id).Cols("last_posted_at").Update(&User{LastPostedAt: now})
+	err = SetTopicUser(user.Id, topic.Id, func(tu *TopicUser) {
+		tu.Posted = true
+		tu.LastReadPostNumber = 1
+		tu.NotificationLevel = NotificationLevelWatching
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	notifyNewPost(user, topic, post, cooked)
+	return topic, nil
+}
+
+type TopicUpdate struct {
+	Id         int64    `json:"id"`
+	Title      string   `json:"title"`
+	CategoryId int64    `json:"categoryId"`
+	Tags       []string `json:"tags"`
+}
+
+func CanEditTopic(user *User, topic *Topic) bool {
+	if user == nil || topic == nil {
+		return false
+	}
+	if user.IsStaff() {
+		return true
+	}
+	return topic.UserId == user.Id && !topic.Closed && !topic.Archived && !user.IsSilenced() && !user.IsSuspended()
+}
+
+func UpdateTopic(user *User, input *TopicUpdate) (*Topic, error) {
+	topic, err := GetTopic(input.Id)
+	if err != nil {
+		return nil, err
+	}
+	if topic == nil || !CanEditTopic(user, topic) {
+		return nil, fmt.Errorf("You can't edit this topic")
+	}
+
+	title, err := validateTitle(input.Title)
+	if err != nil {
+		return nil, err
+	}
+	topic.Title = title
+	topic.Slug = Slugify(title)
+
+	oldCategoryId := topic.CategoryId
+	if !topic.IsPrivateMessage() {
+		if input.CategoryId != 0 && input.CategoryId != topic.CategoryId {
+			category, err := GetCategory(input.CategoryId)
+			if err != nil {
+				return nil, err
+			}
+			if category == nil || !category.CanCreateTopic(user) {
+				return nil, fmt.Errorf("You can't move the topic there")
+			}
+			topic.CategoryId = category.Id
+		}
+		topic.Tags, err = normalizeTags(user, input.Tags)
+		if err != nil {
+			return nil, err
+		}
+		err = setTopicTags(topic.Id, topic.Tags)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	_, err = adapter.Engine.ID(topic.Id).Cols("title", "slug", "category_id", "tags").Update(topic)
+	if err != nil {
+		return nil, err
+	}
+	if oldCategoryId != topic.CategoryId {
+		posts := topic.PostsCount
+		incrCategory(oldCategoryId, "topic_count", -1)
+		incrCategory(oldCategoryId, "post_count", -posts)
+		incrCategory(topic.CategoryId, "topic_count", 1)
+		incrCategory(topic.CategoryId, "post_count", posts)
+	}
+	return topic, nil
+}
+
+var topicStatuses = map[string]string{
+	"closed":          "closed",
+	"archived":        "archived",
+	"visible":         "visible",
+	"pinned":          "pinned_at",
+	"pinned_globally": "pinned_at",
+}
+
+// SetTopicStatus closes, archives, unlists or pins a topic, and adds the small "closed this topic" post.
+func SetTopicStatus(user *User, topicId int64, status string, enabled bool) error {
+	if _, ok := topicStatuses[status]; !ok {
+		return fmt.Errorf("Unknown status %s", status)
+	}
+	topic, err := GetTopic(topicId)
+	if err != nil {
+		return err
+	}
+	if topic == nil {
+		return fmt.Errorf("The topic does not exist")
+	}
+	// the author may close their own topic; everything else is for staff
+	if !user.IsStaff() && !(status == "closed" && topic.UserId == user.Id) {
+		return fmt.Errorf("Only staff can do this")
+	}
+
+	switch status {
+	case "closed":
+		topic.Closed = enabled
+		_, err = adapter.Engine.ID(topic.Id).Cols("closed").Update(topic)
+	case "archived":
+		topic.Archived = enabled
+		_, err = adapter.Engine.ID(topic.Id).Cols("archived").Update(topic)
+	case "visible":
+		topic.Visible = enabled
+		_, err = adapter.Engine.ID(topic.Id).Cols("visible").Update(topic)
+	case "pinned", "pinned_globally":
+		if enabled {
+			topic.PinnedAt = time.Now()
+			topic.PinnedGlobally = status == "pinned_globally"
+			_, err = adapter.Engine.ID(topic.Id).Cols("pinned_at", "pinned_globally").Update(topic)
+		} else {
+			_, err = adapter.Engine.Exec("UPDATE topic SET pinned_at = NULL, pinned_globally = ? WHERE id = ?", false, topic.Id)
+		}
+	}
+	if err != nil {
+		return err
+	}
+
+	actionCode := fmt.Sprintf("%s.%s", status, map[bool]string{true: "enabled", false: "disabled"}[enabled])
+	return addSmallAction(user, topic, actionCode)
+}
+
+func DeleteTopic(user *User, topicId int64) error {
+	topic, err := GetTopic(topicId)
+	if err != nil {
+		return err
+	}
+	if topic == nil || topic.Deleted {
+		return fmt.Errorf("The topic does not exist")
+	}
+	if !user.IsStaff() && !(topic.UserId == user.Id && topic.PostsCount <= 1) {
+		return fmt.Errorf("You can't delete this topic")
+	}
+	return setTopicDeleted(user, topic, true)
+}
+
+func RecoverTopic(user *User, topicId int64) error {
+	topic, err := GetTopic(topicId)
+	if err != nil {
+		return err
+	}
+	if topic == nil || !topic.Deleted {
+		return fmt.Errorf("The topic is not deleted")
+	}
+	if !user.IsStaff() {
+		return fmt.Errorf("Only staff can do this")
+	}
+	return setTopicDeleted(user, topic, false)
+}
+
+func setTopicDeleted(user *User, topic *Topic, deleted bool) error {
+	topic.Deleted = deleted
+	topic.DeletedById = 0
+	if deleted {
+		topic.DeletedById = user.Id
+	}
+	_, err := adapter.Engine.ID(topic.Id).Cols("deleted", "deleted_by_id").Update(topic)
+	if err != nil {
+		return err
+	}
+
+	delta := 1
+	if deleted {
+		delta = -1
+	}
+	if !topic.IsPrivateMessage() {
+		incrCategory(topic.CategoryId, "topic_count", delta)
+		incrCategory(topic.CategoryId, "post_count", delta*topic.PostsCount)
+		for _, tag := range topic.Tags {
+			incrTag(tag, delta)
+		}
+	}
+	incrUser(topic.UserId, "topic_count", delta)
+	return nil
+}
+
+// RecordTopicView counts a view once per visitor and 8 hours, and remembers the topic was opened.
+func RecordTopicView(user *User, topic *Topic, visitorKey string) {
+	if shouldCountView(topic.Id, visitorKey) {
+		_, _ = adapter.Engine.ID(topic.Id).Incr("views").Update(&Topic{})
+		topic.Views++
+	}
+	if user == nil {
+		return
+	}
+	_ = SetTopicUser(user.Id, topic.Id, func(tu *TopicUser) {
+		if tu.FirstVisitedAt.IsZero() || tu.FirstVisitedAt.Year() <= 1 {
+			tu.FirstVisitedAt = time.Now()
+			incrUser(user.Id, "topics_entered", 1)
+		}
+		tu.LastVisitedAt = time.Now()
+	})
+}
+
+// GetSuggestedTopics are shown under a topic: the user's new and unread topics first, then the latest of the category.
+func GetSuggestedTopics(user *User, topic *Topic) ([]*Topic, map[int64]*User, error) {
+	const limit = 5
+	res := []*Topic{}
+	seen := map[int64]bool{topic.Id: true}
+	add := func(list *TopicList) {
+		for _, t := range list.Topics {
+			if len(res) < limit && !seen[t.Id] {
+				seen[t.Id] = true
+				res = append(res, t)
+			}
+		}
+	}
+
+	if topic.IsPrivateMessage() {
+		list, err := GetTopicList(user, &TopicListQuery{Filter: "private_messages", PageSize: limit + 1})
+		if err != nil {
+			return nil, nil, err
+		}
+		add(list)
+	} else {
+		if user != nil {
+			for _, filter := range []string{"unread", "new"} {
+				list, err := GetTopicList(user, &TopicListQuery{Filter: filter, PageSize: limit + 1})
+				if err != nil {
+					return nil, nil, err
+				}
+				add(list)
+			}
+		}
+		for _, categoryId := range []int64{topic.CategoryId, 0} {
+			if len(res) >= limit {
+				break
+			}
+			list, err := GetTopicList(user, &TopicListQuery{Filter: "latest", CategoryId: categoryId, Order: "activity", PageSize: limit + 1})
+			if err != nil {
+				return nil, nil, err
+			}
+			add(list)
+		}
+	}
+
+	users, err := GetTopicListUsers(res)
+	return res, users, err
+}
+
+// refreshTopicPosters recounts who posted in the topic: the original poster, the most frequent ones and the last one,
+// shown as avatars in topic lists.
+func refreshTopicPosters(topic *Topic) error {
+	type row struct {
+		UserId int64
+		Count  int
+	}
+	rows := []row{}
+	err := adapter.Engine.Table("post").Select("user_id, COUNT(*) AS count").
+		Where("topic_id = ? AND deleted = ? AND post_type = ?", topic.Id, false, PostTypeRegular).
+		GroupBy("user_id").OrderBy("count DESC").Find(&rows)
+	if err != nil {
+		return err
+	}
+
+	posters := []int64{topic.UserId}
+	for _, r := range rows {
+		if len(posters) >= 4 {
+			break
+		}
+		if r.UserId != topic.UserId && r.UserId != topic.LastPostUserId {
+			posters = append(posters, r.UserId)
+		}
+	}
+	if topic.LastPostUserId != 0 && topic.LastPostUserId != topic.UserId {
+		posters = append(posters, topic.LastPostUserId)
+	}
+	topic.PosterIds = posters
+	topic.ParticipantCount = len(rows)
+	_, err = adapter.Engine.ID(topic.Id).Cols("poster_ids", "participant_count").Update(topic)
+	return err
+}
+
+func CountTopics(since time.Time) (int64, error) {
+	session := adapter.Engine.Where("deleted = ? AND archetype = ?", false, ArchetypeRegular)
+	if !since.IsZero() {
+		session = session.And("created_at > ?", dbTime(since))
+	}
+	return session.Count(&Topic{})
+}
+
+// GetTopicsForSitemap lists the public topics, newest activity first, for sitemap.xml.
+func GetTopicsForSitemap(page int, pageSize int) ([]*Topic, error) {
+	topics := []*Topic{}
+	session := adapter.Engine.Cols("id", "slug", "bumped_at", "posts_count").
+		Where("deleted = ? AND visible = ? AND archetype = ?", false, true, ArchetypeRegular)
+	hidden := GetHiddenCategoryIds(nil)
+	if len(hidden) > 0 {
+		session = session.NotIn("category_id", hidden)
+	}
+	err := session.Desc("bumped_at").Limit(pageSize, page*pageSize).Find(&topics)
+	return topics, err
+}
+
+func CountPublicTopics() (int64, error) {
+	session := adapter.Engine.Where("deleted = ? AND visible = ? AND archetype = ?", false, true, ArchetypeRegular)
+	hidden := GetHiddenCategoryIds(nil)
+	if len(hidden) > 0 {
+		session = session.NotIn("category_id", hidden)
+	}
+	return session.Count(&Topic{})
+}
+
+type TopicParticipant struct {
+	UserId int64
+	Count  int
+}
+
+// GetTopicParticipants are the users who posted the most in the topic, for its summary.
+func GetTopicParticipants(topicId int64, limit int) ([]*TopicParticipant, error) {
+	rows := []*TopicParticipant{}
+	err := adapter.Engine.Table("post").Select("user_id, COUNT(*) AS count").
+		Where("topic_id = ? AND deleted = ? AND post_type = ?", topicId, false, PostTypeRegular).
+		GroupBy("user_id").OrderBy("count DESC").Limit(limit).Find(&rows)
+	return rows, err
+}
+
+// countWords counts the words of a text for the reading time; two CJK characters count as a word.
+func countWords(raw string) int {
+	cjk := 0
+	for _, r := range raw {
+		if unicode.Is(unicode.Han, r) || unicode.Is(unicode.Hiragana, r) || unicode.Is(unicode.Katakana, r) || unicode.Is(unicode.Hangul, r) {
+			cjk++
+		}
+	}
+	return len(strings.Fields(raw)) + cjk/2
 }

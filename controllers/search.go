@@ -1,4 +1,4 @@
-// Copyright 2020 The casbin Authors. All Rights Reserved.
+// Copyright 2026 The Casnode Authors. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,21 +14,54 @@
 
 package controllers
 
-import "github.com/casbin/casnode/object"
+import (
+	"io"
 
+	"github.com/casnode/casnode/object"
+)
+
+// Search
 // @Title Search
-// @router /search
-// @Tag Search API
+// @Description full search of posts (q understands @user, #category, tags:x, in:title, status:open, order:latest|likes|views); limit 5 for the quick search under the header
+// @router /search [get]
 func (c *ApiController) Search() {
-	keyword := c.Input().Get("keyword")
-
-	if len(keyword) == 0 {
-		c.Data["json"] = Response{Status: "error", Msg: "missing keyword"}
-		c.ServeJSON()
+	user := c.GetSessionUser()
+	limit := c.getInt("limit")
+	if limit <= 0 || limit > 50 {
+		limit = 50
+	}
+	res, err := object.Search(user, c.GetString("q"), c.getInt("page"), limit)
+	if c.responseErr(err) {
 		return
 	}
+	c.ResponseOk(res)
+}
 
-	topics := object.SearchTopics(keyword)
-	c.Data["json"] = Response{Status: "ok", Data: topics}
-	c.ServeJSON()
+// Upload
+// @Title Upload
+// @Description uploads an image or a file for a post
+// @router /upload [post]
+func (c *ApiController) Upload() {
+	user := c.RequireSignedInUser()
+	if user == nil {
+		return
+	}
+	if user.IsSilenced() || user.IsSuspended() {
+		c.ResponseError("You can't upload files")
+		return
+	}
+	file, header, err := c.GetFile("file")
+	if c.responseErr(err) {
+		return
+	}
+	defer file.Close()
+	data, err := io.ReadAll(file)
+	if c.responseErr(err) {
+		return
+	}
+	upload, err := object.SaveUpload(user, header.Filename, data)
+	if c.responseErr(err) {
+		return
+	}
+	c.ResponseOk(upload)
 }

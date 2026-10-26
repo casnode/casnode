@@ -1,4 +1,4 @@
-// Copyright 2021 The casbin Authors. All Rights Reserved.
+// Copyright 2026 The Casnode Authors. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,110 +15,174 @@
 package controllers
 
 import (
-	_ "embed"
+	"net"
+	"regexp"
 	"strings"
 
-	"github.com/casbin/casnode/conf"
-	"github.com/casbin/casnode/object"
-	"github.com/casbin/casnode/util"
-	"github.com/casdoor/casdoor-go-sdk/casdoorsdk"
+	"github.com/beego/beego/v2/core/logs"
+	"github.com/casnode/casnode/conf"
+	"github.com/casnode/casnode/object"
 )
 
-//go:embed token_jwt_key.pem
-var JwtPublicKey string
-
-func init() {
-	InitAuthConfig()
-}
-
-func InitAuthConfig() {
-	casdoorEndpoint := strings.TrimRight(conf.GetConfigString("casdoorEndpoint"), "/")
-	clientId := conf.GetConfigString("clientId")
-	clientSecret := conf.GetConfigString("clientSecret")
-	casdoorOrganization := conf.GetConfigString("casdoorOrganization")
-	casdoorApplication := conf.GetConfigString("casdoorApplication")
-
-	casdoorsdk.InitConfig(casdoorEndpoint, clientId, clientSecret, JwtPublicKey, casdoorOrganization, casdoorApplication)
-}
-
+// Signin
 // @Title Signin
-// @Description sign in as a member
-// @Param   code     QueryString    string  true        "The code to sign in"
-// @Param   state     QueryString    string  true        "The state"
-// @Success 200 {object} controllers.api_controller.Response The Response object
+// @Description signs in with the code Casdoor sends to /callback
+// @Param code query string true "OAuth code"
 // @router /signin [post]
-// @Tag Account API
 func (c *ApiController) Signin() {
-	code := c.Input().Get("code")
-	state := c.Input().Get("state")
-
-	token, err := casdoorsdk.GetOAuthToken(code, state)
-	if err != nil {
-		c.ResponseError(err.Error())
+	code := c.GetString("code")
+	if code == "" {
+		c.ResponseError("Missing the sign-in code")
 		return
 	}
 
-	claims, err := casdoorsdk.ParseJwtToken(token.AccessToken)
+	account, err := object.GetAccountByOAuthCode(code)
 	if err != nil {
-		c.ResponseError(err.Error())
+		logs.Warn("signin failed: %v", err)
+		c.ResponseError("Sign-in failed: " + err.Error())
+		return
+	}
+	user, err := object.SyncCasdoorUser(account)
+	if c.responseErr(err) {
+		return
+	}
+	err = c.SetSessionUser(user)
+	if c.responseErr(err) {
 		return
 	}
 
-	affected, err := object.UpdateMemberOnlineStatus(&claims.User, true, util.GetCurrentTime())
-	if err != nil {
-		c.ResponseError(err.Error())
-		return
-	}
-
-	claims.AccessToken = token.AccessToken
-	c.SetSessionClaims(claims)
-
-	c.ResponseOk(claims, affected)
+	logs.Info("signin: %s from %s", user.Username, c.getClientIp())
+	c.ResponseOk(user)
 }
 
-// @Title Signout
-// @Description sign out the current member
-// @Success 200 {object} controllers.api_controller.Response The Response object
-// @router /signout [post]
-// @Tag Account API
-func (c *ApiController) Signout() {
-	claims := c.GetSessionClaims()
-	if claims != nil {
-		_, err := object.UpdateMemberOnlineStatus(&claims.User, false, util.GetCurrentTime())
-		if err != nil {
-			c.ResponseError(err.Error())
-			return
+var devUsernameRegex = regexp.MustCompile(`^[a-zA-Z0-9_.\-]{1,30}$`)
+
+// DevSignin
+// @Title DevSignin
+// @Description signs in as any user name without Casdoor, when devSignin = true and the request comes from this computer
+// @router /dev-signin [post]
+func (c *ApiController) DevSignin() {
+	// the address of the connection itself, not a forwarded header anyone can set; and only loopback addresses
+	// forwarded, since a reverse proxy on this computer (CasWAF, Nginx) connects from 127.0.0.1 too, while `yarn dev`
+	// passes on the browser's 127.0.0.1
+	host, _, _ := net.SplitHostPort(c.Ctx.Request.RemoteAddr)
+	if !conf.GetConfigBool("devSignin") || !isLoopback(host) || !onlyLoopbackForwarded(c.Ctx.Request.Header.Get("X-Forwarded-For")) || c.Ctx.Request.Header.Get("X-Real-IP") != "" {
+		c.ResponseError("Sign-in without Casdoor is turned off")
+		return
+	}
+
+	username := c.GetString("username")
+	if username == "" {
+		username = "admin"
+	}
+	if !devUsernameRegex.MatchString(username) || username == object.SystemUsername {
+		c.ResponseError("Invalid user name")
+		return
+	}
+	user, err := object.EnsureLocalUser(username)
+	if c.responseErr(err) {
+		return
+	}
+	err = c.SetSessionUser(user)
+	if c.responseErr(err) {
+		return
+	}
+	c.ResponseOk(user)
+}
+
+func isLoopback(host string) bool {
+	ip := net.ParseIP(strings.TrimSpace(host))
+	return ip != nil && ip.IsLoopback()
+}
+
+func onlyLoopbackForwarded(forwardedFor string) bool {
+	if forwardedFor == "" {
+		return true
+	}
+	for _, item := range strings.Split(forwardedFor, ",") {
+		if !isLoopback(item) {
+			return false
 		}
 	}
+	return true
+}
 
-	c.SetSessionClaims(nil)
-
+// Signout
+// @Title Signout
+// @Description signs out
+// @router /signout [post]
+func (c *ApiController) Signout() {
+	err := c.SetSessionUser(nil)
+	if c.responseErr(err) {
+		return
+	}
 	c.ResponseOk()
 }
 
+// GetAccount
 // @Title GetAccount
-// @Description Get current account
-// @Success 200 {object} controllers.api_controller.Response The Response object
+// @Description returns the signed-in user, or null
 // @router /get-account [get]
-// @Tag Account API
 func (c *ApiController) GetAccount() {
-	if c.RequireSignedIn() {
+	c.ResponseOk(c.GetSessionUser())
+}
+
+type siteInfo struct {
+	Settings      map[string]string     `json:"settings"`
+	Casdoor       *object.CasdoorConfig `json:"casdoor"`
+	DevSignin     bool                  `json:"devSignin"`
+	Categories    []*object.Category    `json:"categories"`
+	TopTags       []*object.Tag         `json:"topTags"`
+	CurrentUser   *object.User          `json:"currentUser"`
+	Counts        map[string]int64      `json:"counts"`
+	DefaultLocale string                `json:"defaultLocale"`
+}
+
+// GetSite
+// @Title GetSite
+// @Description returns what every page needs: the site settings, the categories, the top tags, and the signed-in user with their counts
+// @router /get-site [get]
+func (c *ApiController) GetSite() {
+	user := c.GetSessionUser()
+	categories, err := object.GetCategories(user)
+	if c.responseErr(err) {
+		return
+	}
+	tags, err := object.GetTags(30)
+	if c.responseErr(err) {
 		return
 	}
 
-	claims := c.GetSessionClaims()
+	counts := map[string]int64{}
+	if user != nil {
+		counts["new"], counts["unread"], err = object.CountNewAndUnread(user)
+		if c.responseErr(err) {
+			return
+		}
+		counts["notifications"], counts["highPriorityNotifications"], err = object.CountUnreadNotifications(user)
+		if c.responseErr(err) {
+			return
+		}
+		counts["unreadMessages"], err = object.CountUnreadPrivateMessages(user)
+		if c.responseErr(err) {
+			return
+		}
+		if user.IsStaff() {
+			counts["reviewables"], err = object.CountPendingReviewables()
+			if c.responseErr(err) {
+				return
+			}
+		}
+	}
 
-	c.ResponseOk(claims)
-}
-
-func (c *ApiController) UpdateAccountBalance(amount int) {
-	user := c.GetSessionUser()
-	user.Score += amount
-	c.SetSessionUser(user)
-}
-
-func (c *ApiController) UpdateAccountConsumptionSum(amount int) {
-	user := c.GetSessionUser()
-	user.Karma += amount
-	c.SetSessionUser(user)
+	c.ResponseOk(&siteInfo{
+		Settings:      object.GetPublicSettings(),
+		Casdoor:       object.GetCasdoorConfig(),
+		DevSignin:     conf.GetConfigBool("devSignin"),
+		Categories:    object.SortCategoriesForDisplay(categories),
+		TopTags:       tags,
+		CurrentUser:   user,
+		Counts:        counts,
+		DefaultLocale: object.GetSiteSetting("default_locale"),
+	})
 }

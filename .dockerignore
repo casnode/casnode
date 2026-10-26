@@ -1,0 +1,9 @@
+.git
+web/node_modules
+web/.next-build
+web/build
+files
+tmp
+logs
+*.db
+conf/app.local.conf

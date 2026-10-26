@@ -1,4 +1,4 @@
-// Copyright 2021 The casbin Authors. All Rights Reserved.
+// Copyright 2026 The Casnode Authors. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,37 +15,76 @@
 package object
 
 import (
-	"strconv"
+	"fmt"
+	"regexp"
+	"strings"
+	"unicode"
 
-	"github.com/casbin/casnode/conf"
-	"github.com/casdoor/casdoor-go-sdk/casdoorsdk"
+	"golang.org/x/text/unicode/norm"
 )
 
-func GetUserField(user *casdoorsdk.User, field string) string {
-	return user.Properties[field]
-}
-
-func GetUserFieldInt(user *casdoorsdk.User, field string) int {
-	res, err := strconv.Atoi(user.Properties[field])
-	if err != nil {
-		panic(err)
+func uniqueIds(ids []int64) []int64 {
+	seen := map[int64]bool{}
+	res := []int64{}
+	for _, id := range ids {
+		if id == 0 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		res = append(res, id)
 	}
-
 	return res
 }
 
-func SetUserField(user *casdoorsdk.User, field string, value string) {
-	if user.Properties == nil {
-		user.Properties = map[string]string{}
+func containsId(ids []int64, id int64) bool {
+	for _, item := range ids {
+		if item == id {
+			return true
+		}
 	}
-	user.Properties[field] = value
+	return false
 }
 
-func getInitScore() int {
-	score, err := strconv.Atoi(conf.GetConfigString("initScore"))
-	if err != nil {
-		panic(err)
-	}
+// escapeLike drops the LIKE wildcard "%" from a search term; databases disagree on how to escape it.
+func escapeLike(s string) string {
+	return strings.ReplaceAll(s, "%", "")
+}
 
-	return score
+var slugInvalid = regexp.MustCompile(`[^\p{L}\p{N}]+`)
+
+// Slugify makes the URL part of a title: lower case, letters and digits joined by "-". A title without any (emoji
+// only, say) gets "topic".
+func Slugify(s string) string {
+	s = norm.NFKC.String(strings.ToLower(s))
+	s = slugInvalid.ReplaceAllString(s, "-")
+	s = strings.Trim(s, "-")
+	runes := []rune(s)
+	if len(runes) > 80 {
+		s = strings.TrimRight(string(runes[:80]), "-")
+	}
+	if s == "" {
+		return "topic"
+	}
+	return s
+}
+
+func isAsciiWord(s string) bool {
+	for _, r := range s {
+		if r > unicode.MaxASCII {
+			return false
+		}
+	}
+	return true
+}
+
+func truncateRunes(s string, n int) string {
+	runes := []rune(s)
+	if len(runes) <= n {
+		return s
+	}
+	return string(runes[:n]) + "…"
+}
+
+func errorf(format string, a ...interface{}) error {
+	return fmt.Errorf(format, a...)
 }

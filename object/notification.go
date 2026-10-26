@@ -1,4 +1,4 @@
-// Copyright 2020 The casbin Authors. All Rights Reserved.
+// Copyright 2026 The Casnode Authors. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,306 +15,249 @@
 package object
 
 import (
-	"regexp"
-	"strconv"
-	"sync"
+	"time"
 
-	"github.com/casbin/casnode/conf"
-	"github.com/casbin/casnode/service"
-	"github.com/casbin/casnode/util"
+	"github.com/beego/beego/v2/core/logs"
 )
 
-// NotificationType 1-6 means: reply(topic), mentioned(reply), mentioned(topic), favorite(topic), thanks(topic), thanks(reply)
-// Status 1-3 means: unread, have read, deleted
+// The notification types follow Discourse's numbering.
+const (
+	NotificationMentioned               = 1
+	NotificationReplied                 = 2
+	NotificationQuoted                  = 3
+	NotificationEdited                  = 4
+	NotificationLiked                   = 5
+	NotificationPrivateMessage          = 6
+	NotificationInvitedToPrivateMessage = 7
+	NotificationPosted                  = 9
+	NotificationAdminMessage            = 20
+)
+
 type Notification struct {
-	Id               int    `xorm:"int notnull pk autoincr" json:"id"`
-	NotificationType int    `xorm:"int index" json:"notificationType"`
-	ObjectId         int    `xorm:"int index" json:"objectId"`
-	CreatedTime      string `xorm:"varchar(40)" json:"createdTime"`
-	SenderId         string `xorm:"varchar(100)" json:"senderId"`
-	ReceiverId       string `xorm:"varchar(100) index" json:"receiverId"`
-	Status           int    `xorm:"tinyint" json:"-"`
-	// Deleted        bool   `xorm:"bool" json:"-"`
+	Id               int64     `xorm:"pk autoincr" json:"id"`
+	UserId           int64     `xorm:"index" json:"userId"`
+	NotificationType int       `json:"notificationType"`
+	TopicId          int64     `xorm:"index" json:"topicId"`
+	PostNumber       int       `json:"postNumber"`
+	ActingUserId     int64     `json:"actingUserId"`
+	TopicTitle       string    `xorm:"varchar(300)" json:"topicTitle"`
+	Slug             string    `xorm:"varchar(300)" json:"slug"`
+	Excerpt          string    `xorm:"varchar(500)" json:"excerpt,omitempty"`
+	IsRead           bool      `xorm:"index" json:"read"`
+	IsHighPriority   bool      `json:"highPriority"`
+	CreatedAt        time.Time `xorm:"created index" json:"createdAt"`
 }
 
-func AddNotification(notification *Notification) bool {
-	affected, err := adapter.Engine.Insert(notification)
-	if err != nil {
-		panic(err)
+func addNotification(notification *Notification, topic *Topic) error {
+	if notification.UserId == 0 || notification.UserId == notification.ActingUserId {
+		return nil
 	}
-
-	return affected != 0
+	if topic != nil {
+		notification.TopicTitle = topic.Title
+		notification.Slug = topic.Slug
+	}
+	_, err := adapter.Engine.Insert(notification)
+	return err
 }
 
-func DeleteNotification(id string) bool {
-	notification := new(Notification)
-	notification.Status = 3
-	affected, err := adapter.Engine.Id(id).Update(notification)
-	if err != nil {
-		panic(err)
+// notifyNewPost tells everyone who should know about a new post, each once: mentioned, quoted, replied to, the
+// participants of a message and the topic's watchers, in that order of priority.
+func notifyNewPost(author *User, topic *Topic, post *Post, cooked *CookedPost) {
+	targets := map[int64]int{}
+	order := []int64{}
+	add := func(userId int64, notificationType int) {
+		if userId == 0 || userId == author.Id {
+			return
+		}
+		if _, ok := targets[userId]; ok {
+			return
+		}
+		targets[userId] = notificationType
+		order = append(order, userId)
 	}
 
-	return affected != 0
+	for _, user := range getMentionedUsers(cooked.Mentions) {
+		add(user.Id, NotificationMentioned)
+	}
+	for _, user := range getMentionedUsers(cooked.Quotes) {
+		add(user.Id, NotificationQuoted)
+	}
+	if post.ReplyToUserId != 0 {
+		add(post.ReplyToUserId, NotificationReplied)
+	}
+	if topic.IsPrivateMessage() {
+		ids, err := GetTopicAllowedUserIds(topic.Id)
+		if err != nil {
+			logs.Error("notifyNewPost(): %v", err)
+		}
+		for _, id := range ids {
+			add(id, NotificationPrivateMessage)
+		}
+	}
+	watchers := []*TopicUser{}
+	err := adapter.Engine.Where("topic_id = ? AND notification_level = ?", topic.Id, NotificationLevelWatching).Find(&watchers)
+	if err != nil {
+		logs.Error("notifyNewPost(): %v", err)
+	}
+	for _, watcher := range watchers {
+		add(watcher.UserId, NotificationPosted)
+	}
+
+	muted := map[int64]bool{}
+	if len(order) > 0 {
+		rows := []*TopicUser{}
+		_ = adapter.Engine.Where("topic_id = ? AND notification_level = ?", topic.Id, NotificationLevelMuted).In("user_id", order).Find(&rows)
+		for _, row := range rows {
+			muted[row.UserId] = true
+		}
+	}
+
+	for _, userId := range order {
+		notificationType := targets[userId]
+		if muted[userId] && notificationType != NotificationPrivateMessage {
+			continue
+		}
+		if !canUserSeeTopic(userId, topic) {
+			continue
+		}
+		err = addNotification(&Notification{
+			UserId:           userId,
+			NotificationType: notificationType,
+			TopicId:          topic.Id,
+			PostNumber:       post.PostNumber,
+			ActingUserId:     author.Id,
+			Excerpt:          truncateRunes(cooked.Excerpt, 200),
+			IsHighPriority:   notificationType == NotificationPrivateMessage,
+		}, topic)
+		if err != nil {
+			logs.Error("notifyNewPost(): %v", err)
+		}
+	}
 }
 
-func GetNotificationCount() int {
-	count, err := adapter.Engine.Count(&Notification{})
-	if err != nil {
-		panic(err)
+// notifyMentions tells the users newly mentioned in an edited post.
+func notifyMentions(author *User, topic *Topic, post *Post, cooked *CookedPost, onlyNew bool) {
+	for _, user := range getMentionedUsers(cooked.Mentions) {
+		if user.Id == author.Id || !canUserSeeTopic(user.Id, topic) {
+			continue
+		}
+		if onlyNew {
+			has, err := adapter.Engine.Where("user_id = ? AND topic_id = ? AND post_number = ?", user.Id, topic.Id, post.PostNumber).Exist(&Notification{})
+			if err != nil || has {
+				continue
+			}
+		}
+		_ = addNotification(&Notification{
+			UserId:           user.Id,
+			NotificationType: NotificationMentioned,
+			TopicId:          topic.Id,
+			PostNumber:       post.PostNumber,
+			ActingUserId:     author.Id,
+			Excerpt:          truncateRunes(cooked.Excerpt, 200),
+		}, topic)
 	}
-
-	return int(count)
 }
 
-func GetNotifications(memberId string, limit int, offset int) []*NotificationResponse {
-	notifications := []*NotificationResponse{}
-	err := adapter.Engine.Table("notification").
-		Where("notification.receiver_id = ?", memberId).And("notification.status != ?", 3).
-		Desc("notification.created_time").
-		Cols("notification.*").
-		Limit(limit, offset).Find(&notifications)
+func notifyLike(liker *User, topic *Topic, post *Post) {
+	has, err := adapter.Engine.Where("user_id = ? AND topic_id = ? AND post_number = ? AND notification_type = ? AND acting_user_id = ?",
+		post.UserId, topic.Id, post.PostNumber, NotificationLiked, liker.Id).Exist(&Notification{})
+	if err != nil || has {
+		return
+	}
+	_ = addNotification(&Notification{
+		UserId:           post.UserId,
+		NotificationType: NotificationLiked,
+		TopicId:          topic.Id,
+		PostNumber:       post.PostNumber,
+		ActingUserId:     liker.Id,
+	}, topic)
+}
+
+func getMentionedUsers(usernames []string) []*User {
+	if len(usernames) == 0 {
+		return nil
+	}
+	users, err := GetUsersByUsernames(usernames)
 	if err != nil {
-		panic(err)
+		logs.Error("getMentionedUsers(): %v", err)
+		return nil
+	}
+	return users
+}
+
+func canUserSeeTopic(userId int64, topic *Topic) bool {
+	user, err := GetUser(userId)
+	if err != nil || user == nil {
+		return false
+	}
+	canSee, err := CanSeeTopic(user, topic)
+	return err == nil && canSee
+}
+
+var notificationFilters = map[string][]int{
+	"replies":  {NotificationMentioned, NotificationReplied, NotificationQuoted, NotificationPosted},
+	"likes":    {NotificationLiked},
+	"messages": {NotificationPrivateMessage, NotificationInvitedToPrivateMessage, NotificationAdminMessage},
+}
+
+type NotificationList struct {
+	Notifications []*Notification `json:"notifications"`
+	Users         map[int64]*User `json:"users"`
+	More          bool            `json:"more"`
+}
+
+func GetNotifications(user *User, filter string, page int, pageSize int) (*NotificationList, error) {
+	notifications := []*Notification{}
+	session := adapter.Engine.Where("user_id = ?", user.Id)
+	if types, ok := notificationFilters[filter]; ok {
+		session = session.In("notification_type", types)
+	}
+	if filter == "unread" {
+		session = session.And("is_read = ?", false)
+	}
+	err := session.Desc("id").Limit(pageSize+1, page*pageSize).Find(&notifications)
+	if err != nil {
+		return nil, err
+	}
+	more := len(notifications) > pageSize
+	if more {
+		notifications = notifications[:pageSize]
 	}
 
+	ids := []int64{}
 	for _, notification := range notifications {
-		notification.Avatar = getUserAvatar(notification.Notification.SenderId)
+		ids = append(ids, notification.ActingUserId)
 	}
-
-	var wg sync.WaitGroup
-	errChan := make(chan error, 10)
-	res := make([]*NotificationResponse, len(notifications))
-	for k, v := range notifications {
-		wg.Add(1)
-		go func(k int, v *NotificationResponse) {
-			defer wg.Done()
-			switch v.NotificationType {
-			case 1:
-				fallthrough
-			case 2:
-				fallthrough
-			case 6:
-				replyInfo := GetReply(v.ObjectId)
-				if replyInfo == nil || replyInfo.Deleted {
-					break
-				}
-				v.Title = GetReplyTopicTitle(replyInfo.TopicId)
-				v.Content = replyInfo.Content
-				v.ObjectId = replyInfo.TopicId
-			case 3:
-				v.Title = GetTopicTitle(v.ObjectId)
-			case 4:
-				v.Title = GetTopicTitle(v.ObjectId)
-			case 5:
-				v.Title = GetTopicTitle(v.ObjectId)
-			}
-			res[k] = v
-		}(k, v)
-	}
-	wg.Wait()
-	close(errChan)
-	if len(errChan) != 0 {
-		for v := range errChan {
-			panic(v)
-		}
-	}
-
-	return res
-}
-
-func GetNotificationNum(memberId string) int {
-	var total int64
-	var err error
-
-	notification := new(Notification)
-	total, err = adapter.Engine.Where("receiver_id = ?", memberId).And("status != ?", 3).Count(notification)
+	users, err := GetUserMap(ids)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
-
-	return int(total)
+	return &NotificationList{Notifications: notifications, Users: users, More: more}, nil
 }
 
-func GetUnreadNotificationNum(memberId string) int {
-	var total int64
-	var err error
-
-	notification := new(Notification)
-	total, err = adapter.Engine.Where("receiver_id = ?", memberId).And("status = ?", 1).Count(notification)
+func CountUnreadNotifications(user *User) (int64, int64, error) {
+	if user == nil {
+		return 0, 0, nil
+	}
+	all, err := adapter.Engine.Where("user_id = ? AND is_read = ?", user.Id, false).Count(&Notification{})
 	if err != nil {
-		panic(err)
+		return 0, 0, err
 	}
-
-	return int(total)
+	highPriority, err := adapter.Engine.Where("user_id = ? AND is_read = ? AND is_high_priority = ?", user.Id, false, true).Count(&Notification{})
+	return all, highPriority, err
 }
 
-/*
-func GetNotificationId() int {
-	num := GetNotificationCount()
-
-	res := num + 1
-
-	return res
-}
-*/
-
-func UpdateReadStatus(id string) bool {
-	notification := new(Notification)
-	notification.Status = 2
-	affected, err := adapter.Engine.Where("receiver_id = ?", id).Cols("status").Update(notification)
-	if err != nil {
-		panic(err)
+func MarkNotificationRead(user *User, id int64) error {
+	session := adapter.Engine.Where("user_id = ?", user.Id)
+	if id != 0 {
+		session = session.And("id = ?", id)
 	}
-
-	return affected != 0
+	_, err := session.Cols("is_read").Update(&Notification{IsRead: true})
+	return err
 }
 
-func AddReplyNotification(senderId, content string, objectId, topicId int) {
-	memberMap := make(map[string]bool)
-
-	topicInfo := GetTopicBasicInfo(topicId)
-	receiverId := topicInfo.Author
-	memberMap[receiverId] = true
-
-	reg := regexp.MustCompile("@(.*?)[ \n\t]")
-	reg2 := regexp.MustCompile("@([^ \n\t]*?)[^ \n\t]$")
-	regResult := reg.FindAllStringSubmatch(content, -1)
-	regResult2 := reg2.FindAllStringSubmatch(content, -1)
-
-	for _, v := range regResult {
-		if senderId != v[1] && !memberMap[v[1]] {
-			memberMap[v[1]] = true
-			AddMemberFavorites(v[1], "subscribe_topic", strconv.Itoa(topicId))
-		}
-	}
-
-	for _, v := range regResult2 {
-		v[1] += content[len(content)-1:]
-		if senderId != v[1] && !memberMap[v[1]] {
-			memberMap[v[1]] = true
-			AddMemberFavorites(v[1], "subscribe_topic", strconv.Itoa(topicId))
-		}
-	}
-
-	subscribeUsers := GetMembersFromFavorites(strconv.Itoa(topicId), SubscribeTopic)
-	for _, v := range subscribeUsers {
-		if senderId != v.Name && !memberMap[v.Name] {
-			memberMap[v.Name] = true
-		}
-	}
-
-	var wg sync.WaitGroup
-
-	if senderId != receiverId {
-		notification := Notification{
-			// Id:               memberMap[receiverId],
-			NotificationType: 1,
-			ObjectId:         objectId,
-			CreatedTime:      util.GetCurrentTime(),
-			SenderId:         senderId,
-			ReceiverId:       receiverId,
-			Status:           1,
-		}
-		_ = AddNotification(&notification)
-		// send remind email
-		reminder, email := GetMemberEmailReminder(receiverId)
-		if email != "" && reminder {
-			topicIdStr := util.IntToString(topicId)
-			err := sendRemindMail(topicInfo.Title, content, topicIdStr, senderId, email, Domain)
-			if err != nil {
-				panic(err)
-			}
-		}
-	}
-
-	delete(memberMap, receiverId)
-	for receiverId2 := range memberMap {
-		wg.Add(1)
-		go func(receiverId2 string) {
-			defer wg.Done()
-			notification := Notification{
-				NotificationType: 2,
-				ObjectId:         objectId,
-				CreatedTime:      util.GetCurrentTime(),
-				SenderId:         senderId,
-				ReceiverId:       receiverId2,
-				Status:           1,
-			}
-			_ = AddNotification(&notification)
-			// send remind email
-			reminder, email := GetMemberEmailReminder(receiverId2)
-			if email != "" && reminder {
-				topicIdStr := util.IntToString(topicId)
-				err := sendRemindMail(topicInfo.Title, content, topicIdStr, senderId, email, Domain)
-				if err != nil {
-					panic(err)
-				}
-			}
-		}(receiverId2)
-	}
-	wg.Wait()
-}
-
-func AddTopicNotification(objectId int, author, content string) {
-	var wg sync.WaitGroup
-	memberMap := make(map[string]bool)
-	reg := regexp.MustCompile("@(.*?)[ \n\t]")
-	reg2 := regexp.MustCompile("@([^ \n\t]*?)[^ \n\t]$")
-	regResult := reg.FindAllStringSubmatch(content, -1)
-	regResult2 := reg2.FindAllStringSubmatch(content, -1)
-
-	for _, v := range regResult {
-		if author != v[1] && !memberMap[v[1]] {
-			memberMap[v[1]] = true
-			AddMemberFavorites(v[1], "subscribe_topic", strconv.Itoa(objectId))
-		}
-	}
-
-	for _, v := range regResult2 {
-		v[1] += content[len(content)-1:]
-		if author != v[1] && !memberMap[v[1]] {
-			memberMap[v[1]] = true
-			AddMemberFavorites(v[1], "subscribe_topic", strconv.Itoa(objectId))
-		}
-	}
-
-	for k := range memberMap {
-		wg.Add(1)
-		k := k
-		go func() {
-			defer wg.Done()
-			notification := Notification{
-				NotificationType: 3,
-				ObjectId:         objectId,
-				CreatedTime:      util.GetCurrentTime(),
-				SenderId:         author,
-				ReceiverId:       k,
-				Status:           1,
-			}
-			_ = AddNotification(&notification)
-			// send remind email
-			reminder, email := GetMemberEmailReminder(k)
-			if email != "" && reminder {
-				topicIdStr := util.IntToString(objectId)
-				err := sendRemindMail(GetTopicTitle(objectId), content, topicIdStr, author, email, Domain)
-				if err != nil {
-					panic(err)
-				}
-			}
-		}()
-	}
-	wg.Wait()
-}
-
-func sendRemindMail(title string, content string, topicId string, sender string, receiver string, domain string) error {
-	fromName := ""
-	frontConfig := GetFrontConfById("forumName")
-	if frontConfig != nil {
-		fromName = frontConfig.Value
-	}
-	if fromName == "" {
-		fromName = conf.GetConfigString("appname")
-	}
-
-	return service.SendRemindMail(fromName, title, content, topicId, sender, receiver, domain)
+func MarkTopicNotificationsRead(userId int64, topicId int64, upTo int) error {
+	_, err := adapter.Engine.Where("user_id = ? AND topic_id = ? AND post_number <= ? AND is_read = ?", userId, topicId, upTo, false).
+		Cols("is_read").Update(&Notification{IsRead: true})
+	return err
 }

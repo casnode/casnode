@@ -1,4 +1,4 @@
-// Copyright 2021 The casbin Authors. All Rights Reserved.
+// Copyright 2026 The Casnode Authors. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,55 +15,49 @@
 package main
 
 import (
-	"github.com/astaxie/beego"
-	"github.com/astaxie/beego/plugins/cors"
-	_ "github.com/astaxie/beego/session/redis"
-	"github.com/casbin/casnode/casdoor"
-	"github.com/casbin/casnode/object"
-	"github.com/casbin/casnode/routers"
-	"github.com/casbin/casnode/service"
-	"github.com/casbin/casnode/util"
+	"fmt"
+	"net/http"
+	"time"
+
+	"github.com/beego/beego/v2/core/logs"
+	"github.com/beego/beego/v2/server/web"
+	"github.com/casnode/casnode/conf"
+	"github.com/casnode/casnode/object"
+	"github.com/casnode/casnode/routers"
+	"github.com/casnode/casnode/util"
 )
 
 func main() {
 	object.InitAdapter()
-	object.InitHttpClient()
-	casdoor.InitCasdoorAdapter()
-	service.InitDictionary()
-	util.InitSegmenter()
-	object.InitForumBasicInfo()
-	object.InitFrontConf()
-	object.InitTimer()
+	object.InitData()
 
-	beego.InsertFilter("*", beego.BeforeRouter, cors.Allow(&cors.Options{
-		AllowOrigins:     []string{"*"},
-		AllowMethods:     []string{"GET", "PUT", "PATCH"},
-		AllowHeaders:     []string{"Origin"},
-		ExposeHeaders:    []string{"Content-Length"},
-		AllowCredentials: true,
-	}))
+	web.BConfig.WebConfig.Session.SessionOn = true
+	web.BConfig.WebConfig.Session.SessionName = "casnode_session_id"
+	web.BConfig.WebConfig.Session.SessionProvider = "file"
+	web.BConfig.WebConfig.Session.SessionProviderConfig = "./tmp"
+	web.BConfig.WebConfig.Session.SessionGCMaxLifetime = 3600 * 24 * 30
+	web.BConfig.WebConfig.Session.SessionCookieLifeTime = 3600 * 24 * 30
+	web.BConfig.WebConfig.Session.SessionCookieSameSite = http.SameSiteLaxMode
+	web.BConfig.MaxUploadSize = 64 << 20
+	web.BConfig.CopyRequestBody = true
 
-	// beego.DelStaticPath("/static")
-	// beego.SetStaticPath("/static", "web/build/static")
+	routers.InitAPI()
+	web.InsertFilter("*", web.BeforeRouter, routers.StaticFilter)
+	logs.SetLogFuncCall(false)
 
-	beego.SetStaticPath("/swagger", "swagger")
-	beego.BConfig.WebConfig.DirectoryIndex = true
-
-	// https://studygolang.com/articles/2303
-	beego.InsertFilter("*", beego.BeforeRouter, routers.BotFilter)
-	beego.InsertFilter("*", beego.BeforeRouter, routers.Static)
-	beego.InsertFilter("*", beego.BeforeRouter, routers.AutoSigninFilter)
-
-	beego.BConfig.WebConfig.Session.SessionOn = true
-	beego.BConfig.WebConfig.Session.SessionName = "casnode_session_id"
-	if beego.AppConfig.String("redisEndpoint") == "" {
-		beego.BConfig.WebConfig.Session.SessionProvider = "file"
-		beego.BConfig.WebConfig.Session.SessionProviderConfig = "./tmp"
-	} else {
-		beego.BConfig.WebConfig.Session.SessionProvider = "redis"
-		beego.BConfig.WebConfig.Session.SessionProviderConfig = beego.AppConfig.String("redisEndpoint")
+	port := conf.GetConfigInt("httpport", 16900)
+	err := util.StopOldInstance(port)
+	if err != nil {
+		panic(err)
 	}
-	beego.BConfig.WebConfig.Session.SessionGCMaxLifetime = 3600 * 24 * 365
+	// give the system a moment to release the port
+	time.Sleep(500 * time.Millisecond)
 
-	beego.Run()
+	// the Next.js server listens on the next port and renders every page
+	routers.InitFrontendProxy(port + 1)
+	routers.StartFrontend(port+1, port)
+
+	go object.RunPeriodicJobs()
+
+	web.Run(fmt.Sprintf(":%v", port))
 }

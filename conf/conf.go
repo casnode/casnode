@@ -1,4 +1,4 @@
-// Copyright 2023 The Casbin Authors. All Rights Reserved.
+// Copyright 2026 The Casnode Authors. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,92 +15,86 @@
 package conf
 
 import (
-	"fmt"
 	"os"
-	"runtime"
 	"strconv"
 	"strings"
 
-	"github.com/astaxie/beego"
+	"github.com/beego/beego/v2/core/config"
+	"github.com/beego/beego/v2/server/web"
 )
 
+// localConfigPath holds a server's own settings and secrets (clientSecret, dataSourceName, ...), which override
+// conf/app.conf. It is not in git, so pulling a new version never conflicts with it.
+const localConfigPath = "conf/app.local.conf"
+
+func init() {
+	if _, err := os.Stat(localConfigPath); err == nil {
+		local, err := config.NewConfig("ini", localConfigPath)
+		if err != nil {
+			panic(err)
+		}
+		items, err := local.GetSection("default")
+		if err != nil {
+			panic(err)
+		}
+		for key, value := range items {
+			err = web.AppConfig.Set(key, value)
+			if err != nil {
+				panic(err)
+			}
+		}
+	}
+
+	presetConfigItems := []string{"httpport", "appname"}
+	for _, key := range presetConfigItems {
+		if value, ok := os.LookupEnv(key); ok {
+			err := web.AppConfig.Set(key, value)
+			if err != nil {
+				panic(err)
+			}
+		}
+	}
+}
+
+var defaults = map[string]string{
+	"driverName": "sqlite",
+	"dbName":     "casnode.db",
+	"uploadsDir": "files/uploads",
+}
+
+// GetConfigString reads a config item, letting an environment variable of the same name override app.conf.
 func GetConfigString(key string) string {
 	if value, ok := os.LookupEnv(key); ok {
 		return value
 	}
 
-	res := beego.AppConfig.String(key)
+	res, _ := web.AppConfig.String(key)
 	if res == "" {
-		if key == "staticBaseUrl" {
-			res = "https://cdn.casbin.org"
-		}
+		res = defaults[key]
 	}
-
 	return res
 }
 
-func GetConfigBool(key string) (bool, error) {
-	value := GetConfigString(key)
-	if value == "true" {
-		return true, nil
-	} else if value == "false" {
-		return false, nil
-	}
-	return false, fmt.Errorf("value %s cannot be converted into bool", value)
+func GetConfigBool(key string) bool {
+	return GetConfigString(key) == "true"
 }
 
-func GetConfigInt64(key string) (int64, error) {
-	value := GetConfigString(key)
-	num, err := strconv.ParseInt(value, 10, 64)
-	return num, err
-}
-
-func GetConfigDataSourceName() string {
-	dataSourceName := GetConfigString("dataSourceName")
-
-	runningInDocker := os.Getenv("RUNNING_IN_DOCKER")
-	if runningInDocker == "true" {
-		// https://stackoverflow.com/questions/48546124/what-is-linux-equivalent-of-host-docker-internal
-		if runtime.GOOS == "linux" {
-			dataSourceName = strings.ReplaceAll(dataSourceName, "localhost", "172.17.0.1")
-		} else {
-			dataSourceName = strings.ReplaceAll(dataSourceName, "localhost", "host.docker.internal")
-		}
-	}
-
-	return dataSourceName
-}
-
-func GetLanguage(language string) string {
-	if language == "" || language == "*" {
-		return "en"
-	}
-
-	if len(language) < 2 {
-		return "en"
-	} else {
-		return language[0:2]
-	}
-}
-
-func IsDemoMode() bool {
-	return strings.ToLower(GetConfigString("isDemoMode")) == "true"
-}
-
-func GetConfigBatchSize() int {
-	res, err := strconv.Atoi(GetConfigString("batchSize"))
+func GetConfigInt(key string, defaultValue int) int {
+	value, err := strconv.Atoi(GetConfigString(key))
 	if err != nil {
-		res = 100
+		return defaultValue
 	}
-	return res
+	return value
 }
 
-func GetConfigRealDataSourceName(driverName string) string {
-	var dataSourceName string
-	if driverName != "mysql" {
-		dataSourceName = GetConfigDataSourceName()
-	} else {
-		dataSourceName = GetConfigDataSourceName() + GetConfigString("dbName")
+// GetConfigList splits a comma-separated config item, dropping empty entries.
+func GetConfigList(key string) []string {
+	res := []string{}
+	for _, item := range strings.Split(GetConfigString(key), ",") {
+		item = strings.TrimSpace(item)
+		if item != "" {
+			res = append(res, item)
+		}
 	}
-	return dataSourceName
+	return res
 }

@@ -1,26 +1,23 @@
-# Binaries for programs and plugins
+# Go
 *.exe
 *.exe~
-*.dll
-*.so
-*.dylib
-casnode
-
-# Test binary, built with `go test -c`
 *.test
-
-# Output of the go coverage tool, specifically when used with LiteIDE
 *.out
+/casnode
 
-# Dependency directories (remove the comment below to include it)
-# vendor/
+# Node
+node_modules/
+*.tsbuildinfo
 
-.idea/
-*.iml
+# a server's own settings and secrets (see conf/conf.go)
+/conf/app.local.conf
 
+# runtime data: the SQLite database, uploaded files and beego sessions
+*.db
+*.db-shm
+*.db-wal
+/files/
 tmp/
-tmpFiles/
-*.tmp
 logs/
-lastupdate.tmp
-commentsRouter*.go
+.idea/
+.vscode/

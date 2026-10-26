@@ -1,5 +1,0 @@
-# robots.txt for Casnode
-
-User-agent: *
-Disallow: /api/
-Disallow: /static/
