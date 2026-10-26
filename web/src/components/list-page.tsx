@@ -44,6 +44,9 @@ export async function ListPage({ filter, category, tag, period, page = 0, order,
     notFound();
   }
   const list = res.data;
+  if (page > 0 && list.topics.length === 0) {
+    notFound();
+  }
   const empty = filter === "new" ? t("list.noNewTopics") : filter === "unread" ? t("list.noUnreadTopics") : undefined;
   const base = category ? categoryUrl(category, site.categories) : "";
 

@@ -23,7 +23,7 @@ export async function generateMetadata(): Promise<Metadata> {
     applicationName: title,
     icons: { icon: site.settings.favicon_url || "/favicon.svg" },
     alternates: { types: { "application/rss+xml": `${origin}/latest.rss` } },
-    openGraph: { siteName: title, type: "website" },
+    openGraph: { siteName: title, type: "website", images: site.settings.logo_url ? [site.settings.logo_url] : undefined },
     formatDetection: { telephone: false },
   };
 }

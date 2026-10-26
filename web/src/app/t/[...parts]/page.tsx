@@ -3,7 +3,7 @@ import { notFound, permanentRedirect } from "next/navigation";
 import { TopicView } from "@/components/topic/topic-view";
 import { getOrigin, getSite, serverGet } from "@/lib/server-api";
 import type { TopicView as TopicViewData } from "@/lib/types";
-import { topicUrl } from "@/lib/utils";
+import { htmlToText, summarize, topicUrl } from "@/lib/utils";
 import { cache } from "react";
 
 type Props = { params: Promise<{ parts: string[] }>; searchParams: Promise<Record<string, string | string[] | undefined>> };
@@ -42,7 +42,8 @@ export async function generateMetadata({ params, searchParams }: Props): Promise
   const site = await getSite();
   const origin = await getOrigin();
   const canonical = `${origin}${topicUrl(topic)}${page > 1 ? `?page=${page}` : ""}`;
-  const description = topic.excerpt || posts[0]?.cooked.replace(/<[^>]+>/g, " ").slice(0, 300);
+  const description = summarize(topic.excerpt || htmlToText(posts[0]?.cooked ?? ""));
+  const image = topic.imageUrl || site.settings.logo_url;
   const isMessage = topic.archetype === "private_message";
   return {
     title: { absolute: [topic.title, category?.name, site.settings.title || "Casnode"].filter(Boolean).join(" - ") },
@@ -54,7 +55,7 @@ export async function generateMetadata({ params, searchParams }: Props): Promise
       title: topic.title,
       description,
       url: canonical,
-      images: topic.imageUrl ? [topic.imageUrl] : undefined,
+      images: image ? [image] : undefined,
       publishedTime: topic.createdAt,
       modifiedTime: topic.bumpedAt,
     },
@@ -88,7 +89,7 @@ export default async function Page({ params, searchParams }: Props) {
     url: `${origin}${topicUrl(view.topic)}`,
     datePublished: view.topic.createdAt,
     dateModified: view.topic.bumpedAt,
-    text: first?.cooked.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 1000),
+    text: first ? htmlToText(first.cooked).slice(0, 1000) : undefined,
     author: author ? { "@type": "Person", name: author.username, url: `${origin}/u/${encodeURIComponent(author.username)}` } : undefined,
     interactionStatistic: [
       { "@type": "InteractionCounter", interactionType: "https://schema.org/LikeAction", userInteractionCount: view.topic.likeCount },
@@ -99,18 +100,21 @@ export default async function Page({ params, searchParams }: Props) {
       .filter((p) => p.postNumber > 1 && p.postType === 1 && !p.deleted)
       .map((p) => ({
         "@type": "Comment",
-        text: p.cooked.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 500),
+        text: htmlToText(p.cooked).slice(0, 500),
         datePublished: p.createdAt,
         author: view.users[p.userId] ? { "@type": "Person", name: view.users[p.userId].username } : undefined,
         url: `${origin}${topicUrl(view.topic, p.postNumber)}`,
       })),
   };
   const pages = Math.ceil(view.stream.length / 20);
+  if (page > pages) {
+    notFound();
+  }
 
   return (
     <>
       {view.topic.archetype !== "private_message" ? (
-        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, "\u003c") }} />
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c") }} />
       ) : null}
       <TopicView initial={view} targetPostNumber={postNumber} />
       {pages > 1 ? (

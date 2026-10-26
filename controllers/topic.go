@@ -53,6 +53,16 @@ func (c *ApiController) GetTopics() {
 		}
 		query.UserId = target.Id
 	}
+	if query.Tag != "" {
+		tag, err := object.GetTag(query.Tag)
+		if c.responseErr(err) {
+			return
+		}
+		if tag == nil {
+			c.ResponseError("The tag does not exist")
+			return
+		}
+	}
 	if query.Page < 0 {
 		query.Page = 0
 	}

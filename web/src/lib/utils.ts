@@ -33,6 +33,37 @@ export function tagUrl(name: string): string {
   return `/tag/${encodeURIComponent(name)}`;
 }
 
+const namedEntities: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
+
+// htmlToText is the plain text of a post's rendered HTML, for meta tags and structured data.
+export function htmlToText(html: string): string {
+  return html
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (entity, code: string) => {
+      if (code[0] === "#") {
+        const n = code[1] === "x" || code[1] === "X" ? parseInt(code.slice(2), 16) : parseInt(code.slice(1), 10);
+        return n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : entity;
+      }
+      return namedEntities[code.toLowerCase()] ?? entity;
+    })
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// summarize shortens text for a meta description, cutting at a word boundary.
+export function summarize(text: string, max = 160): string {
+  text = text.replace(/…$/, "").trim();
+  if ([...text].length <= max) {
+    return text;
+  }
+  let cut = [...text].slice(0, max).join("");
+  const space = cut.lastIndexOf(" ");
+  if (space > max * 0.6) {
+    cut = cut.slice(0, space);
+  }
+  return cut.replace(/[\s,.;:!?，。；：！？、-]+$/, "") + "…";
+}
+
 export function isValidDate(value?: string | null): boolean {
   if (!value) {
     return false;

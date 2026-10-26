@@ -45,7 +45,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     title: category.name,
     description: category.description || undefined,
     alternates: { canonical: filter === "latest" ? url : `${url}/l/${filter}`, types: { "application/rss+xml": `${url}.rss` } },
-    openGraph: { title: category.name, description: category.description || undefined },
+    openGraph: {
+      title: category.name,
+      description: category.description || undefined,
+      images: site.settings.logo_url ? [site.settings.logo_url] : undefined,
+    },
   };
 }
 
