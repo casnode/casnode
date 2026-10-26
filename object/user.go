@@ -176,6 +176,14 @@ func SyncCasdoorUser(account *CasdoorAccount) (*User, error) {
 	if err != nil {
 		return nil, err
 	}
+	// someone of the same name elsewhere is not this account: the imported user keeps its posts under another name
+	if user != nil && user.CasdoorOwner == ImportedUserOwner {
+		err = renameImportedUser(user)
+		if err != nil {
+			return nil, err
+		}
+		user = nil
+	}
 
 	isAdmin := account.IsAdmin || IsConfigAdmin(account.Name)
 	if user == nil {
