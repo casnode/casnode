@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { CategoriesPage } from "@/components/categories-page";
+import { HomepageBanner } from "@/components/homepage-banner";
 import { firstParam, ListPage, parsePage } from "@/components/list-page";
 import { getSite } from "@/lib/server-api";
 
@@ -17,9 +18,11 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
   const site = await getSite();
   const params = await searchParams;
   const first = (site.settings.top_menu || "latest").split("|")[0];
-  if (first === "categories") {
-    return <CategoriesPage />;
-  }
   const filter = (first === "new" || first === "unread") && !site.currentUser ? "latest" : first;
-  return <ListPage filter={filter} page={parsePage(params.page)} period={firstParam(params.period)} />;
+  return (
+    <>
+      <HomepageBanner />
+      {first === "categories" ? <CategoriesPage /> : <ListPage filter={filter} page={parsePage(params.page)} period={firstParam(params.period)} />}
+    </>
+  );
 }

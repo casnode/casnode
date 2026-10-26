@@ -16,7 +16,10 @@ package object
 
 import (
 	"fmt"
+	"regexp"
+	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -48,6 +51,22 @@ var SettingDefs = []*SettingDef{
 	{Name: "logo_small_url", Type: "string", Default: "", Category: "branding", Public: true},
 	{Name: "logo_dark_url", Type: "string", Default: "", Category: "branding", Public: true},
 	{Name: "favicon_url", Type: "string", Default: "", Category: "branding", Public: true},
+	{Name: "brand_color", Type: "color", Default: "", Category: "branding", Public: true},
+	{Name: "brand_color_dark", Type: "color", Default: "", Category: "branding", Public: true},
+	{Name: "accent_color", Type: "color", Default: "", Category: "branding", Public: true},
+	{Name: "accent_color_dark", Type: "color", Default: "", Category: "branding", Public: true},
+	{Name: "header_background_color", Type: "color", Default: "", Category: "branding", Public: true},
+	{Name: "header_background_color_dark", Type: "color", Default: "", Category: "branding", Public: true},
+	{Name: "header_text_color", Type: "color", Default: "", Category: "branding", Public: true},
+	{Name: "header_text_color_dark", Type: "color", Default: "", Category: "branding", Public: true},
+	{Name: "base_font", Type: "enum", Default: "inter", Category: "branding", Public: true, Choices: fontChoices},
+	{Name: "heading_font", Type: "enum", Default: "inter", Category: "branding", Public: true, Choices: fontChoices},
+	{Name: "header_links", Type: "list", Default: "", Category: "branding", Public: true},
+	{Name: "homepage_banner_title", Type: "string", Default: "", Category: "branding", Public: true},
+	{Name: "homepage_banner_text", Type: "string", Default: "", Category: "branding", Public: true},
+	{Name: "homepage_banner_image_url", Type: "string", Default: "", Category: "branding", Public: true},
+	{Name: "homepage_banner_search", Type: "bool", Default: "true", Category: "branding", Public: true},
+	{Name: "custom_css", Type: "css", Default: "", Category: "branding", Public: true},
 	{Name: "default_locale", Type: "enum", Default: "en", Category: "basic", Public: true, Choices: "en|zh"},
 	{Name: "top_menu", Type: "list", Default: "latest|new|unread|hot|top|categories", Category: "basic", Public: true},
 	{Name: "desktop_category_page_style", Type: "enum", Default: "categories_and_latest_topics", Category: "basic", Public: true,
@@ -79,6 +98,10 @@ var SettingDefs = []*SettingDef{
 	{Name: "uncategorized_category_id", Type: "integer", Default: "0", Category: "hidden", Public: true},
 	{Name: "staff_category_id", Type: "integer", Default: "0", Category: "hidden", Public: false},
 }
+
+const fontChoices = "inter|system|helvetica|arial|verdana|georgia|times"
+
+var colorRegex = regexp.MustCompile(`^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$`)
 
 var (
 	settingCache     map[string]string
@@ -175,6 +198,12 @@ func SetSiteSetting(name string, value string) error {
 	}
 	if def.Type == "bool" && value != "true" && value != "false" {
 		return fmt.Errorf("%s must be true or false", name)
+	}
+	if def.Type == "color" && value != "" && !colorRegex.MatchString(value) {
+		return fmt.Errorf("%s must be a hex color like #0088cc", name)
+	}
+	if def.Type == "enum" && !slices.Contains(strings.Split(def.Choices, "|"), value) {
+		return fmt.Errorf("%s must be one of %s", name, strings.ReplaceAll(def.Choices, "|", ", "))
 	}
 
 	has, err := adapter.Engine.Exist(&SiteSetting{Name: name})

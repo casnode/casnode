@@ -44,6 +44,14 @@ export function SiteHeader() {
   const unread = counts.notifications ?? 0;
   const highPriority = counts.highPriorityNotifications ?? 0;
   const topicCategory = headerTopic ? categoryById(headerTopic.categoryId) : undefined;
+  // header_links is "Label,URL|Label,URL", like Discourse's custom header links
+  const headerLinks = (settings.header_links || "")
+    .split("|")
+    .map((item) => {
+      const comma = item.indexOf(",");
+      return comma < 0 ? null : { label: item.slice(0, comma).trim(), url: item.slice(comma + 1).trim() };
+    })
+    .filter((link): link is { label: string; url: string } => !!link && !!link.label && !!link.url);
 
   return (
     <div className="d-header-wrap">
@@ -82,6 +90,20 @@ export function SiteHeader() {
                   </div>
                 ) : null}
               </div>
+            ) : headerLinks.length ? (
+              <ul className="custom-header-links">
+                {headerLinks.map((link) => (
+                  <li key={link.label + link.url}>
+                    {link.url.startsWith("/") ? (
+                      <Link href={link.url}>{link.label}</Link>
+                    ) : (
+                      <a href={link.url} target="_blank" rel="noopener noreferrer">
+                        {link.label}
+                      </a>
+                    )}
+                  </li>
+                ))}
+              </ul>
             ) : null}
             <div className="panel" ref={panelRef}>
               {!currentUser ? (

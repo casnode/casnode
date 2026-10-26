@@ -2,6 +2,7 @@ import "@fontsource-variable/inter";
 import type { Metadata, Viewport } from "next";
 import { Toaster } from "sonner";
 import { Analytics } from "@/components/analytics";
+import { BrandStyle } from "@/components/brand-style";
 import { Composer } from "@/components/composer";
 import { ComposerProvider } from "@/components/composer-provider";
 import { SiteHeader } from "@/components/header";
@@ -44,6 +45,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html lang={locale === "zh" ? "zh-CN" : "en"} suppressHydrationWarning>
       <body>
         <SiteProvider initialSite={site} locale={locale}>
+          <BrandStyle />
           <LayoutStateProvider>
             <ComposerProvider>
               {site.settings.header_html ? <div dangerouslySetInnerHTML={{ __html: site.settings.header_html }} /> : null}

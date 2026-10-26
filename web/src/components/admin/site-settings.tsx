@@ -56,8 +56,29 @@ function SettingRow({ setting, onSaved }: { setting: Setting; onSaved: (value: s
         ))}
       </select>
     );
-  } else if (setting.type === "text" || setting.type === "html") {
-    input = <textarea className="d-input font-mono text-[0.875em]" rows={setting.type === "text" ? 8 : 4} value={value} onChange={(e) => setValue(e.target.value)} />;
+  } else if (setting.type === "color") {
+    input = (
+      <div className="color-input">
+        <input
+          type="color"
+          className={/^#[0-9a-f]{6}$/i.test(value) ? "" : "unset"}
+          value={/^#[0-9a-f]{6}$/i.test(value) ? value : "#ffffff"}
+          aria-label={setting.name}
+          onChange={(e) => setValue(e.target.value)}
+        />
+        <input className="d-input" type="text" value={value} aria-label={setting.name} onChange={(e) => setValue(e.target.value)} />
+      </div>
+    );
+  } else if (setting.type === "text" || setting.type === "html" || setting.type === "css") {
+    input = (
+      <textarea
+        className="d-input font-mono text-[0.875em]"
+        rows={setting.type === "html" ? 4 : setting.type === "css" ? 12 : 8}
+        spellCheck={false}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+      />
+    );
   } else {
     input = <input className="d-input max-w-[32em]" type={setting.type === "integer" ? "number" : "text"} value={value} onChange={(e) => setValue(e.target.value)} />;
   }
@@ -80,7 +101,7 @@ function SettingRow({ setting, onSaved }: { setting: Setting; onSaved: (value: s
             </button>
           </div>
         ) : null}
-        {setting.value !== setting.default && setting.type !== "text" ? (
+        {setting.value !== setting.default && setting.type !== "text" && setting.type !== "css" ? (
           <button type="button" className="btn-link self-start text-[0.8706em]" onClick={() => {
             setValue(setting.default);
             save(setting.default);
