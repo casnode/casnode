@@ -20,7 +20,7 @@
 </p>
 
 <p align="center">
-  <a href="https://forum.casbin.com"><img alt="Live demo" src="https://img.shields.io/badge/demo-forum.casbin.com-0088cc"></a>
+  <a href="https://demo.casnode.com"><img alt="Live demo" src="https://img.shields.io/badge/demo-demo.casnode.com-0088cc"></a>
   <a href="https://github.com/casnode/casnode/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/casnode/casnode?style=flat"></a>
   <a href="https://github.com/casnode/casnode/network/members"><img alt="Forks" src="https://img.shields.io/github/forks/casnode/casnode?style=flat"></a>
   <a href="https://github.com/casnode/casnode/issues"><img alt="Issues" src="https://img.shields.io/github/issues/casnode/casnode"></a>
@@ -29,7 +29,7 @@
 </p>
 
 <p align="center">
-  <a href="https://forum.casbin.com">Live demo</a> |
+  <a href="https://demo.casnode.com">Live demo</a> |
   <a href="#quick-start">Quick start</a> |
   <a href="#configuration">Configuration</a> |
   <a href="#deployment">Deployment</a> |
@@ -184,7 +184,8 @@ git tag v2.1.0 && git push origin v2.1.0
 
 ## Community
 
-- Live demo and support forum: [forum.casbin.com](https://forum.casbin.com)
+- Live demo: [demo.casnode.com](https://demo.casnode.com)
+- Casnode in production: [forum.casbin.com](https://forum.casbin.com), the Casbin community forum
 - Chat: [Discord](https://discord.gg/d8dsAWgn43)
 - Bugs and feature requests: [GitHub Issues](https://github.com/casnode/casnode/issues)
 
