@@ -246,18 +246,22 @@ func actorName(user *User) string {
 
 var emailTexts = map[string]map[string]string{
 	"en": {
-		"visit":       "View it on the site",
-		"footer":      "You are receiving this because of your notification settings.",
-		"preferences": "Change your email settings",
-		"testSubject": "Test email",
-		"testBody":    "This is a test email from %s. Email notifications work.",
+		"visit":         "View it on the site",
+		"footer":        "You are receiving this because of your notification settings.",
+		"preferences":   "Change your email settings",
+		"testSubject":   "Test email",
+		"testBody":      "This is a test email from %s. Email notifications work.",
+		"watcherFooter": "You get every new topic and reply because this address is in the site setting new_post_notification_emails.",
+		"siteSettings":  "Site settings",
 	},
 	"zh": {
-		"visit":       "到网站上查看",
-		"footer":      "你收到这封邮件是因为你的通知设置。",
-		"preferences": "修改邮件设置",
-		"testSubject": "测试邮件",
-		"testBody":    "这是来自 %s 的测试邮件，邮件通知可以正常发送。",
+		"visit":         "到网站上查看",
+		"footer":        "你收到这封邮件是因为你的通知设置。",
+		"preferences":   "修改邮件设置",
+		"testSubject":   "测试邮件",
+		"testBody":      "这是来自 %s 的测试邮件，邮件通知可以正常发送。",
+		"watcherFooter": "你收到每个新话题和回复，是因为这个地址在站点设置 new_post_notification_emails 里。",
+		"siteSettings":  "站点设置",
 	},
 }
 

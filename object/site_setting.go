@@ -105,6 +105,8 @@ var SettingDefs = []*SettingDef{
 	{Name: "smtp_username", Type: "string", Default: "", Category: "email", Public: false},
 	{Name: "smtp_password", Type: "secret", Default: "", Category: "email", Public: false},
 	{Name: "email_delay_minutes", Type: "integer", Default: "5", Category: "email", Public: false},
+	// addresses that get every new topic and reply (not personal messages), separated by "|" or ","
+	{Name: "new_post_notification_emails", Type: "list", Default: "", Category: "email", Public: false},
 	{Name: "google_analytics_id", Type: "string", Default: "", Category: "analytics", Public: true},
 	{Name: "baidu_analytics_id", Type: "string", Default: "", Category: "analytics", Public: true},
 	{Name: "uncategorized_category_id", Type: "integer", Default: "0", Category: "hidden", Public: true},

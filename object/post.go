@@ -329,6 +329,7 @@ func AddPost(user *User, topicId int64, raw string, replyToPostNumber int) (*Pos
 	}
 	RebakePostAfterOneboxes(post.Id, cooked.OneboxUrls)
 	notifyNewPost(user, topic, post, cooked)
+	queueNewPostEmail(topic, post)
 	PublishToTopic(topic, map[string]interface{}{"type": "created", "postId": post.Id, "postNumber": post.PostNumber, "userId": user.Id})
 	PublishLatest(topic, "bumped")
 	TriggerBadgeGrant()

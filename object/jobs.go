@@ -99,6 +99,7 @@ func InitFeatures() {
 
 func RunPeriodicJobs() {
 	go runBadgeWorker()
+	go runNewPostEmailWorker()
 	go func() {
 		for {
 			sendNotificationEmails()

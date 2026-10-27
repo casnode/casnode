@@ -635,6 +635,7 @@ func CreateTopic(user *User, input *NewTopic) (*Topic, error) {
 	}
 	RebakePostAfterOneboxes(post.Id, cooked.OneboxUrls)
 	notifyNewPost(user, topic, post, cooked)
+	queueNewPostEmail(topic, post)
 	PublishLatest(topic, "created")
 	TriggerBadgeGrant()
 	return topic, nil
