@@ -30,6 +30,7 @@
 
 <p align="center">
   <a href="https://demo.casnode.com">Live demo</a> |
+  <a href="https://casnode.org/docs/introduction">Documentation</a> |
   <a href="#quick-start">Quick start</a> |
   <a href="#configuration">Configuration</a> |
   <a href="#deployment">Deployment</a> |
