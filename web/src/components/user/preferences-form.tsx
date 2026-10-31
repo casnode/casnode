@@ -69,14 +69,20 @@ export function PreferencesForm({ user, accountUrl }: { user: User; accountUrl: 
           <div>{user.email}</div>
         </div>
       ) : null}
-      <p className="instructions mb-6">
-        {t("user.managedByCasdoor")}{" "}
-        {accountUrl ? (
-          <a href={accountUrl} target="_blank" rel="noopener">
-            {t("user.accountCenter")}
-          </a>
-        ) : null}
-      </p>
+      {user.loginType === "local" ? (
+        currentUser?.id === user.id ? (
+          <ChangePassword />
+        ) : null
+      ) : !user.loginType ? (
+        <p className="instructions mb-6">
+          {t("user.managedByCasdoor")}{" "}
+          {accountUrl ? (
+            <a href={accountUrl} target="_blank" rel="noopener">
+              {t("user.accountCenter")}
+            </a>
+          ) : null}
+        </p>
+      ) : null}
 
       <h2 className="mb-4 text-[1.3195em] font-bold">{t("user.profile")}</h2>
       <div className="control-group">
@@ -164,6 +170,56 @@ export function PreferencesForm({ user, accountUrl }: { user: User; accountUrl: 
       <button type="button" className="btn btn-primary" disabled={busy} onClick={save}>
         {t("user.save")}
       </button>
+    </div>
+  );
+}
+
+// ChangePassword is for local accounts, which have a password here.
+function ChangePassword() {
+  const { t, settings } = useSite();
+  const [open, setOpen] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const minLength = Number(settings.min_password_length || 8);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await apiPost("change-password", undefined, { currentPassword, newPassword });
+      toast.success(t("user.passwordChanged"));
+      setOpen(false);
+      setCurrentPassword("");
+      setNewPassword("");
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="control-group mb-6">
+      <span className="control-label">{t("login.password")}</span>
+      {open ? (
+        <div className="flex max-w-[24em] flex-col gap-2">
+          <input className="d-input" type="password" autoComplete="current-password" placeholder={t("user.currentPassword")} value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} />
+          <input className="d-input" type="password" autoComplete="new-password" placeholder={t("reset.newPassword")} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+          <div className="instructions">{t("signup.passwordHelp", { count: minLength })}</div>
+          <div className="flex gap-2">
+            <button type="button" className="btn btn-primary" disabled={busy || !currentPassword || newPassword.length < minLength} onClick={save}>
+              {t("reset.save")}
+            </button>
+            <button type="button" className="btn btn-default" onClick={() => setOpen(false)}>
+              {t("common.cancel")}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button type="button" className="btn btn-default btn-small" onClick={() => setOpen(true)}>
+          {t("user.changePassword")}
+        </button>
+      )}
     </div>
   );
 }

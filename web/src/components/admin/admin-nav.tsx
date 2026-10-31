@@ -15,6 +15,7 @@ const items: { href: string; key: MessageKey; icon: string; adminOnly?: boolean 
   { href: "/g", key: "adminPage.groups", icon: "user-group" },
   { href: "/admin/badges", key: "adminPage.badges", icon: "certificate", adminOnly: true },
   { href: "/admin/email", key: "adminPage.email", icon: "envelope", adminOnly: true },
+  { href: "/admin/logins", key: "adminPage.logins", icon: "key", adminOnly: true },
 ];
 
 export function AdminNav() {

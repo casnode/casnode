@@ -3346,17 +3346,21 @@ nav.post-controls .show-replies .d-icon {
 .setting-row .color-input input[type="color"].unset {
   opacity: 0.4;
 }
-.admin-users-table {
+.admin-users-table,
+.admin-table {
   width: 100%;
   border-collapse: collapse;
 }
 .admin-users-table th,
-.admin-users-table td {
+.admin-users-table td,
+.admin-table th,
+.admin-table td {
   padding: 0.6em 0.5em;
   text-align: left;
   border-bottom: 1px solid var(--primary-low);
 }
-.admin-users-table th {
+.admin-users-table th,
+.admin-table th {
   color: var(--primary-medium);
   font-weight: normal;
   border-bottom-width: 3px;
@@ -3483,6 +3487,61 @@ nav.post-controls .show-replies .d-icon {
 .login-page h1 {
   margin: 0 0 1em;
   font-size: var(--font-up-3);
+}
+.login-page .control-group,
+.admin-logins .control-group {
+  margin-bottom: 1.25em;
+}
+.login-page .d-input {
+  width: 100%;
+}
+.login-page .instructions,
+.admin-logins .instructions {
+  margin-top: 0.25em;
+  color: var(--primary-medium);
+  font-size: var(--font-down-1);
+}
+.login-actions {
+  display: flex;
+  align-items: center;
+  gap: 1em;
+}
+.login-switch {
+  margin: 1.5em 0 0;
+  color: var(--primary-medium);
+}
+.login-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+}
+.login-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.75em;
+  margin: 1.5em 0 1em;
+  color: var(--primary-medium);
+  font-size: var(--font-down-1);
+}
+.login-divider::before,
+.login-divider::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--primary-low);
+}
+.btn-social {
+  justify-content: center;
+  width: 100%;
+  border: 1px solid var(--primary-low-mid);
+  background: var(--secondary);
+  color: var(--primary);
+}
+.btn-social:hover,
+.btn-social:focus-visible {
+  background: var(--primary-very-low);
+}
+.btn-social .d-icon {
+  color: var(--primary-high);
 }
 
 .alert {

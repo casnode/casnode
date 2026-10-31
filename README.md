@@ -7,7 +7,7 @@
 
 <p align="center">
   <b>An open-source forum with the look and features of Discourse, built with Go and Next.js.</b><br>
-  Fast server-rendered pages for search engines, sign-in through <a href="https://casdoor.ai">Casdoor</a>, and your choice of MySQL, PostgreSQL, SQLite or SQL Server.
+  Fast server-rendered pages for search engines, accounts with a password or single sign-on (OpenID Connect, OAuth 2.0, <a href="https://casdoor.ai">Casdoor</a>), and your choice of MySQL, PostgreSQL, SQLite or SQL Server.
 </p>
 
 <p align="center">
@@ -50,8 +50,10 @@ server:
   Open Graph, JSON-LD (`DiscussionForumPosting`), sitemaps, RSS feeds and crawler-friendly pagination.
 - **Runs on the database you already have.** [xorm](https://github.com/xorm-io/xorm) talks to MySQL, PostgreSQL, SQLite
   and SQL Server; the database and tables are created on first start.
-- **Single sign-on out of the box.** Members sign in with [Casdoor](https://github.com/casdoor/casdoor), which brings
-  GitHub, Google, WeChat, SAML, LDAP and 100+ other providers.
+- **Accounts built in, single sign-on when you want it.** Members sign up with an email and a password, out of the box.
+  Admins can add any OpenID Connect or OAuth 2.0 provider on `/admin/logins` (GitHub, Google, Microsoft Entra ID,
+  GitLab, Discord, Keycloak, Okta...), or connect [Casdoor](https://github.com/casdoor/casdoor) for SAML, LDAP, WeChat
+  and 100+ other providers. Logging in with a password can be turned off to leave single sign-on only.
 
 ## Features
 
@@ -61,6 +63,7 @@ server:
 | **Topics** | Post stream that loads in both directions, timeline, topic map (views, likes, users, reading time), replies shown in place, likes, bookmarks, quoting selected text, edit history, closed / pinned / archived / unlisted notices, suggested topics |
 | **Composer** | Markdown with live preview and toolbar, image and file uploads (paste or drag), `@mentions`, categories and tags, drafts, Discourse's `[quote]` and `[details]` blocks, emoji shortcodes |
 | **Tracking** | Reading position, New and Unread topics, notification levels (Watching, Tracking, Normal, Muted), notifications for mentions, replies, quotes, likes and messages |
+| **Accounts** | Sign up, log in with a user name or email, reset the password by email, change it in preferences; single sign-on through OpenID Connect, OAuth 2.0 (with presets for the usual providers) or Casdoor; failed logins are rate limited |
 | **People** | Personal messages, profiles with summary and activity, preferences, the Users directory |
 | **Search** | Full-text search with `@user`, `#category`, `tags:name`, `in:title`, `in:messages`, `status:open`, `order:latest\|likes\|views`, and quick results in the header |
 | **Moderation** | Flags and the review queue; closing, pinning, archiving, unlisting, deleting and recovering topics and posts; suspending and silencing users; staff-only categories |
@@ -80,7 +83,7 @@ server:
 | --- | --- |
 | Backend | Go, [beego](https://github.com/beego/beego), [xorm](https://github.com/xorm-io/xorm), [goldmark](https://github.com/yuin/goldmark) + [bluemonday](https://github.com/microcosm-cc/bluemonday) for Markdown |
 | Frontend | [Next.js](https://nextjs.org) App Router (React Server Components), [shadcn/ui](https://ui.shadcn.com) on Radix, Tailwind CSS |
-| Sign-in | [Casdoor](https://casdoor.ai) (OAuth 2.0 / OIDC) |
+| Sign-in | Local accounts (bcrypt), any OpenID Connect / OAuth 2.0 provider (PKCE), [Casdoor](https://casdoor.ai) |
 | Database | MySQL, PostgreSQL, SQLite, SQL Server |
 
 ```
@@ -95,14 +98,11 @@ browser ──> Go backend (httpport) ──> /api, /uploads, RSS, sitemaps
 
 ```bash
 docker build -t casnode .
-docker run -d -p 16900:16900 -v casnode-data:/app/data \
-  -e casdoorEndpoint=https://door.casdoor.com -e clientId=<client id> -e clientSecret=<client secret> \
-  -e casdoorOrganization=<organization> -e casdoorApplication=<application> -e admins=<your user name> \
-  casnode
+docker run -d -p 16900:16900 -v casnode-data:/app/data casnode
 ```
 
-Open http://localhost:16900. The SQLite database and the uploads are kept in the `casnode-data` volume; see
-[Configuration](#configuration) for MySQL or PostgreSQL.
+Open http://localhost:16900 and sign up: the first account becomes the administrator. The SQLite database and the
+uploads are kept in the `casnode-data` volume; see [Configuration](#configuration) for MySQL or PostgreSQL.
 
 ### From source
 
@@ -121,7 +121,8 @@ yarn install
 yarn dev                         # frontend on http://localhost:13900 with hot reload
 ```
 
-Open http://localhost:13900/login and sign in as `admin` (the users in `admins` administer the forum).
+Open http://localhost:13900/signup and create an account (the first one is the administrator), or, with `devSignin`,
+sign in on http://localhost:13900/login as `admin` without a password.
 
 ## Configuration
 
@@ -134,16 +135,20 @@ git); every item can also be set as an environment variable of the same name.
 | `driverName` | `sqlite` | `sqlite`, `mysql`, `postgres` or `mssql` |
 | `dataSourceName` | | `root:123456@tcp(localhost:3306)/` (MySQL), `user=postgres password=123456 host=localhost port=5432 sslmode=disable` (PostgreSQL), `sqlserver://sa:123456@localhost:1433` (SQL Server) |
 | `dbName` | `casnode.db` | Database name, or the file name for SQLite |
-| `casdoorEndpoint` | | Your Casdoor, e.g. `https://door.casdoor.com` |
+| `casdoorEndpoint` | | Optional: your Casdoor, e.g. `https://door.casdoor.com`, for a "Continue with Casdoor" button |
 | `clientId`, `clientSecret` | | Of the Casdoor application; add `https://<your forum>/callback` to its redirect URLs |
 | `casdoorOrganization`, `casdoorApplication` | | Only users of this organization can sign in |
-| `admins` | `admin` | User names that administer the forum, besides Casdoor's own admins |
+| `admins` | `admin` | Casdoor user names that administer the forum, besides Casdoor's own admins (local accounts don't count, since anyone could sign up under such a name: the first account is the administrator, and admins promote others on `/admin/users`) |
 | `uploadsDir` | `files/uploads` | Where uploaded images and files are kept |
 | `trustProxyHeader` | `false` | Behind a reverse proxy, take the client IP from `X-Forwarded-For` |
-| `devSignin` | `false` | Sign in without Casdoor, from the same machine only; never turn it on in production |
+| `devSignin` | `false` | Sign in as any user name without a password, from the same machine only; never turn it on in production |
 
 Everything else (site name, logo, top menu, posting limits, guidelines, terms, privacy policy, analytics IDs) is changed
 by admins on `/admin/site_settings`.
+
+Logging in is set up by admins too: `enable_local_logins`, `allow_new_registrations` and `min_password_length` on
+`/admin/site_settings`, and single sign-on providers on `/admin/logins`, which shows the callback URL to register at
+each provider. Resetting a password by email needs the SMTP settings (`smtp_host`, `notification_email`).
 
 ## Deployment
 

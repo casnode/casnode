@@ -26,7 +26,7 @@ import (
 
 // Signin
 // @Title Signin
-// @Description signs in with the code Casdoor sends to /callback
+// @Description signs in with the code Casdoor sends to /callback (the providers on /admin/logins use /api/auth/callback)
 // @Param code query string true "OAuth code"
 // @router /signin [post]
 func (c *ApiController) Signin() {
@@ -128,14 +128,16 @@ func (c *ApiController) GetAccount() {
 }
 
 type siteInfo struct {
-	Settings      map[string]string     `json:"settings"`
-	Casdoor       *object.CasdoorConfig `json:"casdoor"`
-	DevSignin     bool                  `json:"devSignin"`
-	Categories    []*object.Category    `json:"categories"`
-	TopTags       []*object.Tag         `json:"topTags"`
-	CurrentUser   *object.User          `json:"currentUser"`
-	Counts        map[string]int64      `json:"counts"`
-	DefaultLocale string                `json:"defaultLocale"`
+	Settings      map[string]string            `json:"settings"`
+	Casdoor       *object.CasdoorConfig        `json:"casdoor"`
+	AuthProviders []*object.PublicAuthProvider `json:"authProviders"`
+	PasswordReset bool                         `json:"passwordReset"`
+	DevSignin     bool                         `json:"devSignin"`
+	Categories    []*object.Category           `json:"categories"`
+	TopTags       []*object.Tag                `json:"topTags"`
+	CurrentUser   *object.User                 `json:"currentUser"`
+	Counts        map[string]int64             `json:"counts"`
+	DefaultLocale string                       `json:"defaultLocale"`
 }
 
 // GetSite
@@ -182,6 +184,8 @@ func (c *ApiController) GetSite() {
 	c.ResponseOk(&siteInfo{
 		Settings:      object.GetPublicSettings(),
 		Casdoor:       object.GetCasdoorConfig(),
+		AuthProviders: object.GetPublicAuthProviders(),
+		PasswordReset: object.CanResetPassword(),
 		DevSignin:     conf.GetConfigBool("devSignin"),
 		Categories:    object.SortCategoriesForDisplay(categories),
 		TopTags:       tags,

@@ -91,6 +91,10 @@ var SettingDefs = []*SettingDef{
 	{Name: "new_topic_duration_days", Type: "integer", Default: "2", Category: "basic", Public: true},
 	{Name: "enable_personal_messages", Type: "bool", Default: "true", Category: "basic", Public: true},
 	{Name: "login_required", Type: "bool", Default: "false", Category: "login", Public: true},
+	// logging in with a user name and password; off leaves Casdoor and the providers on /admin/logins
+	{Name: "enable_local_logins", Type: "bool", Default: "true", Category: "login", Public: true},
+	{Name: "allow_new_registrations", Type: "bool", Default: "true", Category: "login", Public: true},
+	{Name: "min_password_length", Type: "integer", Default: "8", Category: "login", Public: true},
 	{Name: "max_upload_size_kb", Type: "integer", Default: "4096", Category: "files", Public: true},
 	{Name: "authorized_extensions", Type: "list", Default: "jpg|jpeg|png|gif|webp|svg|pdf|zip|txt", Category: "files", Public: true},
 	{Name: "poll_enabled", Type: "bool", Default: "true", Category: "posting", Public: true},
@@ -228,6 +232,9 @@ func SetSiteSetting(name string, value string) error {
 	}
 	if def.Type == "enum" && !slices.Contains(strings.Split(def.Choices, "|"), value) {
 		return fmt.Errorf("%s must be one of %s", name, strings.ReplaceAll(def.Choices, "|", ", "))
+	}
+	if name == "enable_local_logins" && value == "false" && !HasOtherWayToLogIn() {
+		return fmt.Errorf("Set up Casdoor or a provider on /admin/logins first, or nobody could log in")
 	}
 
 	has, err := adapter.Engine.Exist(&SiteSetting{Name: name})

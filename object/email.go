@@ -253,6 +253,9 @@ var emailTexts = map[string]map[string]string{
 		"testBody":      "This is a test email from %s. Email notifications work.",
 		"watcherFooter": "You get every new topic and reply because this address is in the site setting new_post_notification_emails.",
 		"siteSettings":  "Site settings",
+		"resetSubject":  "Set a new password",
+		"resetBody":     "Someone asked to reset the password of %s on %s. Follow this link within an hour to set a new one:",
+		"resetIgnore":   "If it was not you, ignore this email: your password stays the same.",
 	},
 	"zh": {
 		"visit":         "到网站上查看",
@@ -262,6 +265,9 @@ var emailTexts = map[string]map[string]string{
 		"testBody":      "这是来自 %s 的测试邮件，邮件通知可以正常发送。",
 		"watcherFooter": "你收到每个新话题和回复，是因为这个地址在站点设置 new_post_notification_emails 里。",
 		"siteSettings":  "站点设置",
+		"resetSubject":  "设置新密码",
+		"resetBody":     "有人申请重置 %s 在 %s 的密码。请在一小时内打开下面的链接设置新密码：",
+		"resetIgnore":   "如果不是你本人操作，忽略这封邮件即可，密码不会改变。",
 	},
 }
 

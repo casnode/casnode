@@ -109,7 +109,7 @@ func (c *ApiController) GetSessionUser() *object.User {
 	if err != nil || user == nil {
 		return nil
 	}
-	if object.IsConfigAdmin(user.Username) {
+	if user.IsConfigAdmin() {
 		user.Admin = true
 	}
 	if !c.skipTouch {

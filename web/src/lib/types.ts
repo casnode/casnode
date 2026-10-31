@@ -9,6 +9,8 @@ export interface User {
   admin: boolean;
   moderator: boolean;
   trustLevel: number;
+  // "local" for a password here, "oauth" for a provider on /admin/logins, none for Casdoor
+  loginType?: string;
   email?: string;
   bioRaw?: string;
   bioCooked?: string;
@@ -161,9 +163,41 @@ export interface TopicView {
   readingTime: number;
 }
 
+// a single sign-on provider on the login page
+export interface AuthProviderInfo {
+  name: string;
+  displayName: string;
+  icon: string;
+}
+
+// a single sign-on provider as /admin/logins edits it
+export interface AuthProvider {
+  name: string;
+  displayName: string;
+  type: "oidc" | "oauth2";
+  icon: string;
+  clientId: string;
+  clientSecret: string;
+  issuer: string;
+  authUrl: string;
+  tokenUrl: string;
+  userInfoUrl: string;
+  scopes: string;
+  idField: string;
+  usernameField: string;
+  nameField: string;
+  emailField: string;
+  avatarField: string;
+  allowSignup: boolean;
+  enabled: boolean;
+  sortOrder: number;
+}
+
 export interface SiteInfo {
   settings: Record<string, string>;
   casdoor: { serverUrl: string; clientId: string; organizationName: string; appName: string };
+  authProviders: AuthProviderInfo[];
+  passwordReset: boolean;
   devSignin: boolean;
   categories: Category[];
   topTags: Tag[];

@@ -16,6 +16,7 @@ interface SiteContextValue {
   refreshSite: () => Promise<void>;
   setCounts: (counts: Record<string, number>) => void;
   login: (signup?: boolean) => void;
+  casdoorLogin: (signup?: boolean) => void;
   categoryById: (id: number) => Category | undefined;
 }
 
@@ -40,18 +41,9 @@ export function SiteProvider({ initialSite, locale, children }: { initialSite: S
     setSite((s) => ({ ...s, counts: { ...s.counts, ...counts } }));
   }, []);
 
-  const login = useCallback(
+  const casdoorLogin = useCallback(
     (signup = false) => {
-      try {
-        sessionStorage.setItem("casnode-return-to", window.location.pathname + window.location.search);
-      } catch {
-        // private windows may refuse storage; the user then lands on the home page
-      }
       const casdoor = site.casdoor;
-      if (!casdoor.serverUrl || !casdoor.clientId) {
-        router.push("/login");
-        return;
-      }
       const redirectUri = `${window.location.origin}/callback`;
       const params = new URLSearchParams({
         client_id: casdoor.clientId,
@@ -64,7 +56,30 @@ export function SiteProvider({ initialSite, locale, children }: { initialSite: S
       // eslint-disable-next-line @next/next/no-location-assign-relative-destination
       window.location.assign(`${casdoor.serverUrl}/${signup ? "signup" : "login"}/oauth/authorize?${params.toString()}`);
     },
-    [router, site.casdoor],
+    [site.casdoor],
+  );
+
+  const login = useCallback(
+    (signup = false) => {
+      const path = window.location.pathname;
+      if (!["/login", "/signup"].includes(path) && !path.startsWith("/password-reset")) {
+        try {
+          sessionStorage.setItem("casnode-return-to", path + window.location.search);
+        } catch {
+          // private windows may refuse storage; the user then lands on the home page
+        }
+      }
+      const settings = site.settings ?? {};
+      const localLogins = settings.enable_local_logins !== "false";
+      const casdoorOnly = !localLogins && !!site.casdoor.serverUrl && !!site.casdoor.clientId && !site.authProviders?.length && !site.devSignin;
+      // Casdoor alone needs no page of choices
+      if (casdoorOnly) {
+        casdoorLogin(signup);
+        return;
+      }
+      router.push(signup && localLogins && settings.allow_new_registrations !== "false" ? "/signup" : "/login");
+    },
+    [router, site.settings, site.casdoor, site.authProviders, site.devSignin, casdoorLogin],
   );
 
   const value = useMemo<SiteContextValue>(() => {
@@ -79,9 +94,10 @@ export function SiteProvider({ initialSite, locale, children }: { initialSite: S
       refreshSite,
       setCounts,
       login,
+      casdoorLogin,
       categoryById: (id: number) => site.categories?.find((c) => c.id === id),
     };
-  }, [site, locale, refreshSite, setCounts, login]);
+  }, [site, locale, refreshSite, setCounts, login, casdoorLogin]);
 
   return <SiteContext.Provider value={value}>{children}</SiteContext.Provider>;
 }

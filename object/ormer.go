@@ -160,6 +160,9 @@ func (a *Adapter) createTables() error {
 		new(ChatMembership),
 		new(ChatMessage),
 		new(ChatReaction),
+		new(UserToken),
+		new(AuthProvider),
+		new(UserAuth),
 	}
 	for _, table := range tables {
 		err := a.Engine.Sync2(table)

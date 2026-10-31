@@ -31,6 +31,8 @@ type User struct {
 	Avatar        string    `xorm:"varchar(500)" json:"avatar"`
 	Email         string    `xorm:"varchar(200)" json:"email,omitempty"`
 	CasdoorOwner  string    `xorm:"varchar(100)" json:"-"`
+	LoginType     string    `xorm:"varchar(20)" json:"loginType,omitempty"`
+	PasswordHash  string    `xorm:"varchar(100)" json:"-"`
 	Title         string    `xorm:"varchar(100)" json:"title"`
 	Admin         bool      `json:"admin"`
 	Moderator     bool      `json:"moderator"`
@@ -161,6 +163,12 @@ func GetUserMap(ids []int64) (map[int64]*User, error) {
 	return res, nil
 }
 
+// IsConfigAdmin tells whether the `admins` config makes this user an administrator. It only counts for users from
+// Casdoor, whose organization decides who gets a name; anyone could sign up locally as "admin".
+func (u *User) IsConfigAdmin() bool {
+	return u != nil && u.LoginType == "" && u.CasdoorOwner != ImportedUserOwner && IsConfigAdmin(u.Username)
+}
+
 func IsConfigAdmin(username string) bool {
 	for _, name := range conf.GetConfigList("admins") {
 		if strings.EqualFold(name, username) {
@@ -172,23 +180,42 @@ func IsConfigAdmin(username string) bool {
 
 // SyncCasdoorUser creates the forum user for a Casdoor account on first sign-in, and refreshes its name and avatar later.
 func SyncCasdoorUser(account *CasdoorAccount) (*User, error) {
-	user, err := GetUserByUsername(account.Name)
+	subject := account.Owner + "/" + account.Name
+	user, err := getLinkedUser(casdoorProviderName, subject)
 	if err != nil {
 		return nil, err
 	}
+	linked := user != nil
+	if !linked {
+		// users from before the links were kept are found by name
+		user, err = GetUserByUsername(account.Name)
+		if err != nil {
+			return nil, err
+		}
+	}
 	// someone of the same name elsewhere is not this account: the imported user keeps its posts under another name
-	if user != nil && user.CasdoorOwner == ImportedUserOwner {
+	if !linked && user != nil && user.CasdoorOwner == ImportedUserOwner {
 		err = renameImportedUser(user)
 		if err != nil {
 			return nil, err
 		}
 		user = nil
 	}
+	// nor is someone who signed up here or with another provider under that name
+	username := account.Name
+	if !linked && user != nil && user.LoginType != "" {
+		user = nil
+		username, err = freeUsername(account.Name)
+		if err != nil {
+			return nil, err
+		}
+	}
 
+	// the Casdoor organization vouches for the name, even when the forum user goes by another one here
 	isAdmin := account.IsAdmin || IsConfigAdmin(account.Name)
 	if user == nil {
 		user = &User{
-			Username:     account.Name,
+			Username:     username,
 			Name:         account.DisplayName,
 			Avatar:       account.Avatar,
 			Email:        account.Email,
@@ -198,10 +225,16 @@ func SyncCasdoorUser(account *CasdoorAccount) (*User, error) {
 			LastSeenAt:   time.Now(),
 		}
 		_, err = adapter.Engine.Insert(user)
-		if err == nil && isAdmin {
-			err = RefreshAutomaticGroups()
+		if err != nil {
+			return nil, err
 		}
-		return user, err
+		if isAdmin {
+			err = RefreshAutomaticGroups()
+			if err != nil {
+				return nil, err
+			}
+		}
+		return user, linkUser(casdoorProviderName, subject, user.Id)
 	}
 
 	user.Name = account.DisplayName
@@ -214,6 +247,9 @@ func SyncCasdoorUser(account *CasdoorAccount) (*User, error) {
 	_, err = adapter.Engine.ID(user.Id).Cols("name", "avatar", "email", "casdoor_owner", "admin").Update(user)
 	if err == nil && isAdmin {
 		err = RefreshAutomaticGroups()
+	}
+	if err == nil && !linked {
+		err = linkUser(casdoorProviderName, subject, user.Id)
 	}
 	return user, err
 }

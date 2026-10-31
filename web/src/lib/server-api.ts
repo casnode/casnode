@@ -34,6 +34,8 @@ export const getSite = cache(async (): Promise<SiteInfo> => {
     return {
       settings: { title: "Casnode", top_menu: "latest|categories" },
       casdoor: { serverUrl: "", clientId: "", organizationName: "", appName: "" },
+      authProviders: [],
+      passwordReset: false,
       devSignin: false,
       categories: [],
       topTags: [],

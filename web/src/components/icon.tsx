@@ -1,4 +1,5 @@
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
+import { faApple, faDiscord, faGitlab, faGithub, faGoogle, faMicrosoft, faWeixin } from "@fortawesome/free-brands-svg-icons";
 import {
   faBell as farBell,
   faBookmark as farBookmark,
@@ -38,6 +39,7 @@ import {
   faGauge,
   faGear,
   faGlobe,
+  faKey,
   faHeading,
   faHeart,
   faHouse,
@@ -194,6 +196,15 @@ const icons: Record<string, IconDefinition> = {
   "far-square": farSquare,
   unlock: faUnlock,
   calendar: faCalendar,
+  key: faKey,
+  // the icons of single sign-on providers
+  github: faGithub,
+  google: faGoogle,
+  gitlab: faGitlab,
+  microsoft: faMicrosoft,
+  discord: faDiscord,
+  apple: faApple,
+  wechat: faWeixin,
 };
 
 export type IconName = keyof typeof icons;

@@ -789,7 +789,7 @@ func RefreshAutomaticGroups() error {
 	defer groupWriteLock.Unlock()
 
 	users := []*User{}
-	err := adapter.Engine.Cols("id", "username", "admin", "moderator").Where(builder.Or(builder.Eq{"admin": true}, builder.Eq{"moderator": true})).Find(&users)
+	err := adapter.Engine.Cols("id", "username", "admin", "moderator", "login_type", "casdoor_owner").Where(builder.Or(builder.Eq{"admin": true}, builder.Eq{"moderator": true})).Find(&users)
 	if err != nil {
 		return err
 	}
@@ -798,7 +798,7 @@ func RefreshAutomaticGroups() error {
 		if user.Username == SystemUsername {
 			continue
 		}
-		if user.Admin || IsConfigAdmin(user.Username) {
+		if user.Admin || user.IsConfigAdmin() {
 			want[GroupAdmins] = append(want[GroupAdmins], user.Id)
 		}
 		if user.Moderator {
