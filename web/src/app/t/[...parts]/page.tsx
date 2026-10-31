@@ -107,7 +107,13 @@ export default async function Page({ params, searchParams }: Props) {
         "@type": "Comment",
         text: htmlToText(p.cooked).slice(0, 500),
         datePublished: p.createdAt,
-        author: view.users[p.userId] ? { "@type": "Person", name: view.users[p.userId].username } : undefined,
+        author: view.users[p.userId]
+          ? {
+              "@type": "Person",
+              name: view.users[p.userId].username,
+              url: `${origin}/u/${encodeURIComponent(view.users[p.userId].username)}`,
+            }
+          : undefined,
         url: `${origin}${topicUrl(view.topic, p.postNumber)}`,
       })),
   };
