@@ -22,6 +22,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
   return (
     <>
       <HomepageBanner />
+      {site.settings.homepage_banner_title ? null : <h1 className="sr-only">{site.settings.title || "Casnode"}</h1>}
       {first === "categories" ? <CategoriesPage /> : <ListPage filter={filter} page={parsePage(params.page)} period={firstParam(params.period)} />}
     </>
   );
