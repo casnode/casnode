@@ -22,6 +22,7 @@ import (
 	"github.com/beego/beego/v2/core/logs"
 	"github.com/beego/beego/v2/server/web"
 	"github.com/casnode/casnode/conf"
+	"github.com/casnode/casnode/internal/sessions"
 	"github.com/casnode/casnode/object"
 	"github.com/casnode/casnode/routers"
 	"github.com/casnode/casnode/util"
@@ -34,7 +35,7 @@ func main() {
 
 	web.BConfig.WebConfig.Session.SessionOn = true
 	web.BConfig.WebConfig.Session.SessionName = "casnode_session_id"
-	web.BConfig.WebConfig.Session.SessionProvider = "file"
+	web.BConfig.WebConfig.Session.SessionProvider = sessions.FileProviderName
 	web.BConfig.WebConfig.Session.SessionProviderConfig = "./tmp"
 	web.BConfig.WebConfig.Session.SessionGCMaxLifetime = 3600 * 24 * 30
 	web.BConfig.WebConfig.Session.SessionCookieLifeTime = 3600 * 24 * 30
@@ -43,6 +44,7 @@ func main() {
 	web.BConfig.CopyRequestBody = true
 
 	routers.InitAPI()
+	web.InsertFilter("*", web.BeforeRouter, sessions.PrepareResponse)
 	web.InsertFilter("*", web.BeforeRouter, routers.StaticFilter)
 	logs.SetLogFuncCall(false)
 
